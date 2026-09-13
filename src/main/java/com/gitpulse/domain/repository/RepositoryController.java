@@ -30,6 +30,12 @@ public class RepositoryController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @PostMapping("/{id}/sync")
+    public ResponseEntity<RepositoryResponse> syncRepository(@PathVariable Long id) {
+        RepositoryResponse response = repositoryService.syncRepositoryWithGitHub(id);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<RepositoryResponse> getRepositoryById(@PathVariable Long id) {
         RepositoryResponse response = repositoryService.getRepositoryById(id);

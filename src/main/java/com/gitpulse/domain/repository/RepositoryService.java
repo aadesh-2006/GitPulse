@@ -4,6 +4,8 @@ import com.gitpulse.common.exception.DuplicateResourceException;
 import com.gitpulse.common.exception.ResourceNotFoundException;
 import com.gitpulse.domain.repository.dto.CreateRepositoryRequest;
 import com.gitpulse.domain.repository.dto.RepositoryResponse;
+import com.gitpulse.integration.github.client.GitHubRepositoryClient;
+import com.gitpulse.integration.github.dto.GitHubRepositoryResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -17,9 +19,12 @@ public class RepositoryService {
     private static final Logger log = LoggerFactory.getLogger(RepositoryService.class);
 
     private final RepositoryJpaRepository repositoryJpaRepository;
+    private final GitHubRepositoryClient gitHubRepositoryClient;
 
-    public RepositoryService(RepositoryJpaRepository repositoryJpaRepository) {
+    public RepositoryService(RepositoryJpaRepository repositoryJpaRepository,
+                             GitHubRepositoryClient gitHubRepositoryClient) {
         this.repositoryJpaRepository = repositoryJpaRepository;
+        this.gitHubRepositoryClient = gitHubRepositoryClient;
     }
 
     @Transactional
@@ -44,6 +49,23 @@ public class RepositoryService {
         log.info("Registered new repository [id={}, fullName={}]", saved.getId(), saved.getFullName());
 
         return RepositoryResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public RepositoryResponse syncRepositoryWithGitHub(Long id) {
+        Repository repository = findEntityById(id);
+        log.info("Starting GitHub metadata sync for repository [id={}, fullName={}]", id, repository.getFullName());
+
+        GitHubRepositoryResponse githubData = gitHubRepositoryClient.getRepository(
+                repository.getOwner(),
+                repository.getName()
+        );
+
+        repository.updateFromGitHub(githubData);
+        Repository updated = repositoryJpaRepository.save(repository);
+
+        log.info("Completed GitHub metadata sync for repository [id={}, fullName={}]", id, updated.getFullName());
+        return RepositoryResponse.fromEntity(updated);
     }
 
     @Transactional(readOnly = true)

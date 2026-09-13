@@ -13,12 +13,21 @@ public class RepositoryResponse {
     private final String description;
     private final String defaultBranch;
     private final Long githubId;
+    private final String htmlUrl;
+    private final String primaryLanguage;
+    private final boolean isPrivate;
+    private final Instant pushedAt;
+    private final Integer starsCount;
+    private final Integer forksCount;
+    private final Integer openIssuesCount;
     private final Instant createdAt;
     private final Instant updatedAt;
 
     public RepositoryResponse(Long id, String owner, String name, String fullName,
                               String description, String defaultBranch, Long githubId,
-                              Instant createdAt, Instant updatedAt) {
+                              String htmlUrl, String primaryLanguage, boolean isPrivate,
+                              Instant pushedAt, Integer starsCount, Integer forksCount,
+                              Integer openIssuesCount, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.owner = owner;
         this.name = name;
@@ -26,6 +35,13 @@ public class RepositoryResponse {
         this.description = description;
         this.defaultBranch = defaultBranch;
         this.githubId = githubId;
+        this.htmlUrl = htmlUrl;
+        this.primaryLanguage = primaryLanguage;
+        this.isPrivate = isPrivate;
+        this.pushedAt = pushedAt;
+        this.starsCount = starsCount;
+        this.forksCount = forksCount;
+        this.openIssuesCount = openIssuesCount;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -42,6 +58,13 @@ public class RepositoryResponse {
                 repository.getDescription(),
                 repository.getDefaultBranch(),
                 repository.getGithubId(),
+                repository.getHtmlUrl(),
+                repository.getPrimaryLanguage(),
+                repository.isPrivate(),
+                repository.getPushedAt(),
+                repository.getStarsCount(),
+                repository.getForksCount(),
+                repository.getOpenIssuesCount(),
                 repository.getCreatedAt(),
                 repository.getUpdatedAt()
         );
@@ -73,6 +96,34 @@ public class RepositoryResponse {
 
     public Long getGithubId() {
         return githubId;
+    }
+
+    public String getHtmlUrl() {
+        return htmlUrl;
+    }
+
+    public String getPrimaryLanguage() {
+        return primaryLanguage;
+    }
+
+    public boolean isPrivate() {
+        return isPrivate;
+    }
+
+    public Instant getPushedAt() {
+        return pushedAt;
+    }
+
+    public Integer getStarsCount() {
+        return starsCount;
+    }
+
+    public Integer getForksCount() {
+        return forksCount;
+    }
+
+    public Integer getOpenIssuesCount() {
+        return openIssuesCount;
     }
 
     public Instant getCreatedAt() {

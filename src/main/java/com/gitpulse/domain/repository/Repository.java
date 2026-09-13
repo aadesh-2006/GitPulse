@@ -1,5 +1,6 @@
 package com.gitpulse.domain.repository;
 
+import com.gitpulse.integration.github.dto.GitHubRepositoryResponse;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -38,6 +39,27 @@ public class Repository {
     @Column(name = "github_id")
     private Long githubId;
 
+    @Column(name = "html_url", length = 300)
+    private String htmlUrl;
+
+    @Column(name = "primary_language", length = 100)
+    private String primaryLanguage;
+
+    @Column(name = "is_private", nullable = false)
+    private boolean isPrivate = false;
+
+    @Column(name = "pushed_at")
+    private Instant pushedAt;
+
+    @Column(name = "stars_count")
+    private Integer starsCount = 0;
+
+    @Column(name = "forks_count")
+    private Integer forksCount = 0;
+
+    @Column(name = "open_issues_count")
+    private Integer openIssuesCount = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -48,12 +70,52 @@ public class Repository {
         // Required by JPA
     }
 
+    public Repository(String owner, String name) {
+        this(owner, name, null, "main");
+    }
+
     public Repository(String owner, String name, String description, String defaultBranch) {
         this.owner = Objects.requireNonNull(owner, "owner must not be null").trim();
         this.name = Objects.requireNonNull(name, "name must not be null").trim();
         this.fullName = this.owner + "/" + this.name;
         this.description = description != null ? description.trim() : null;
         this.defaultBranch = (defaultBranch != null && !defaultBranch.isBlank()) ? defaultBranch.trim() : "main";
+    }
+
+    public void updateFromGitHub(GitHubRepositoryResponse githubData) {
+        if (githubData == null) {
+            return;
+        }
+        if (githubData.getId() != null) {
+            this.githubId = githubData.getId();
+        }
+        if (githubData.getDescription() != null) {
+            this.description = githubData.getDescription();
+        }
+        if (githubData.getDefaultBranch() != null && !githubData.getDefaultBranch().isBlank()) {
+            this.defaultBranch = githubData.getDefaultBranch();
+        }
+        if (githubData.getHtmlUrl() != null) {
+            this.htmlUrl = githubData.getHtmlUrl();
+        }
+        if (githubData.getLanguage() != null) {
+            this.primaryLanguage = githubData.getLanguage();
+        }
+        if (githubData.getIsPrivate() != null) {
+            this.isPrivate = githubData.getIsPrivate();
+        }
+        if (githubData.getPushedAt() != null) {
+            this.pushedAt = githubData.getPushedAt();
+        }
+        if (githubData.getStargazersCount() != null) {
+            this.starsCount = githubData.getStargazersCount();
+        }
+        if (githubData.getForksCount() != null) {
+            this.forksCount = githubData.getForksCount();
+        }
+        if (githubData.getOpenIssuesCount() != null) {
+            this.openIssuesCount = githubData.getOpenIssuesCount();
+        }
     }
 
     @PrePersist
@@ -124,6 +186,62 @@ public class Repository {
 
     public void setGithubId(Long githubId) {
         this.githubId = githubId;
+    }
+
+    public String getHtmlUrl() {
+        return htmlUrl;
+    }
+
+    public void setHtmlUrl(String htmlUrl) {
+        this.htmlUrl = htmlUrl;
+    }
+
+    public String getPrimaryLanguage() {
+        return primaryLanguage;
+    }
+
+    public void setPrimaryLanguage(String primaryLanguage) {
+        this.primaryLanguage = primaryLanguage;
+    }
+
+    public boolean isPrivate() {
+        return isPrivate;
+    }
+
+    public void setPrivate(boolean aPrivate) {
+        isPrivate = aPrivate;
+    }
+
+    public Instant getPushedAt() {
+        return pushedAt;
+    }
+
+    public void setPushedAt(Instant pushedAt) {
+        this.pushedAt = pushedAt;
+    }
+
+    public Integer getStarsCount() {
+        return starsCount;
+    }
+
+    public void setStarsCount(Integer starsCount) {
+        this.starsCount = starsCount;
+    }
+
+    public Integer getForksCount() {
+        return forksCount;
+    }
+
+    public void setForksCount(Integer forksCount) {
+        this.forksCount = forksCount;
+    }
+
+    public Integer getOpenIssuesCount() {
+        return openIssuesCount;
+    }
+
+    public void setOpenIssuesCount(Integer openIssuesCount) {
+        this.openIssuesCount = openIssuesCount;
     }
 
     public Instant getCreatedAt() {

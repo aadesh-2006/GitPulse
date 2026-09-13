@@ -4,6 +4,9 @@ import com.gitpulse.common.exception.DuplicateResourceException;
 import com.gitpulse.common.exception.ResourceNotFoundException;
 import com.gitpulse.domain.repository.dto.CreateRepositoryRequest;
 import com.gitpulse.domain.repository.dto.RepositoryResponse;
+import com.gitpulse.integration.github.client.GitHubRepositoryClient;
+import com.gitpulse.integration.github.dto.GitHubRepositoryResponse;
+import com.gitpulse.integration.github.exception.GitHubResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +32,9 @@ class RepositoryServiceTest {
 
     @Mock
     private RepositoryJpaRepository repositoryJpaRepository;
+
+    @Mock
+    private GitHubRepositoryClient gitHubRepositoryClient;
 
     @InjectMocks
     private RepositoryService repositoryService;
@@ -73,6 +80,65 @@ class RepositoryServiceTest {
                 .hasMessageContaining("Repository already exists with fullName: 'spring-projects/spring-boot'");
 
         verify(repositoryJpaRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should successfully synchronize repository metadata with GitHub")
+    void syncRepositoryWithGitHub_Success() {
+        GitHubRepositoryResponse gitHubData = new GitHubRepositoryResponse();
+        gitHubData.setId(987654L);
+        gitHubData.setDescription("Updated Spring Boot description from GitHub");
+        gitHubData.setDefaultBranch("main");
+        gitHubData.setHtmlUrl("https://github.com/spring-projects/spring-boot");
+        gitHubData.setLanguage("Java");
+        gitHubData.setIsPrivate(false);
+        gitHubData.setStargazersCount(72000);
+        gitHubData.setForksCount(41000);
+        gitHubData.setOpenIssuesCount(450);
+        gitHubData.setPushedAt(Instant.parse("2026-09-01T10:00:00Z"));
+
+        when(repositoryJpaRepository.findById(1L)).thenReturn(Optional.of(sampleRepository));
+        when(gitHubRepositoryClient.getRepository("spring-projects", "spring-boot")).thenReturn(gitHubData);
+        when(repositoryJpaRepository.save(any(Repository.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        RepositoryResponse response = repositoryService.syncRepositoryWithGitHub(1L);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getGithubId()).isEqualTo(987654L);
+        assertThat(response.getDescription()).isEqualTo("Updated Spring Boot description from GitHub");
+        assertThat(response.getHtmlUrl()).isEqualTo("https://github.com/spring-projects/spring-boot");
+        assertThat(response.getPrimaryLanguage()).isEqualTo("Java");
+        assertThat(response.isPrivate()).isFalse();
+        assertThat(response.getStarsCount()).isEqualTo(72000);
+        assertThat(response.getForksCount()).isEqualTo(41000);
+        assertThat(response.getOpenIssuesCount()).isEqualTo(450);
+
+        verify(gitHubRepositoryClient).getRepository("spring-projects", "spring-boot");
+        verify(repositoryJpaRepository).save(sampleRepository);
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when syncing nonexistent local repository")
+    void syncRepositoryWithGitHub_LocalNotFound_ThrowsResourceNotFoundException() {
+        when(repositoryJpaRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> repositoryService.syncRepositoryWithGitHub(999L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Repository not found with id: '999'");
+
+        verify(gitHubRepositoryClient, never()).getRepository(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should propagate GitHubResourceNotFoundException when GitHub repository is not found")
+    void syncRepositoryWithGitHub_GitHubNotFound_ThrowsException() {
+        when(repositoryJpaRepository.findById(1L)).thenReturn(Optional.of(sampleRepository));
+        when(gitHubRepositoryClient.getRepository("spring-projects", "spring-boot"))
+                .thenThrow(new GitHubResourceNotFoundException("spring-projects", "spring-boot"));
+
+        assertThatThrownBy(() -> repositoryService.syncRepositoryWithGitHub(1L))
+                .isInstanceOf(GitHubResourceNotFoundException.class)
+                .hasMessageContaining("GitHub repository not found: 'spring-projects/spring-boot'");
     }
 
     @Test

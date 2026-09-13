@@ -1,5 +1,9 @@
 package com.gitpulse.common.exception;
 
+import com.gitpulse.integration.github.exception.GitHubApiException;
+import com.gitpulse.integration.github.exception.GitHubAuthenticationException;
+import com.gitpulse.integration.github.exception.GitHubRateLimitExceededException;
+import com.gitpulse.integration.github.exception.GitHubResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +72,70 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    @ExceptionHandler(GitHubResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleGitHubResourceNotFoundException(
+            GitHubResourceNotFoundException ex,
+            HttpServletRequest request) {
+        log.warn("GitHub resource not found: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
+    @ExceptionHandler(GitHubRateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleGitHubRateLimitExceededException(
+            GitHubRateLimitExceededException ex,
+            HttpServletRequest request) {
+        log.warn("GitHub rate limit exceeded: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(errorResponse);
+    }
+
+    @ExceptionHandler(GitHubAuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleGitHubAuthenticationException(
+            GitHubAuthenticationException ex,
+            HttpServletRequest request) {
+        log.error("GitHub authentication error: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.BAD_GATEWAY.value(),
+                HttpStatus.BAD_GATEWAY.getReasonPhrase(),
+                "Failed to authenticate with GitHub API",
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(errorResponse);
+    }
+
+    @ExceptionHandler(GitHubApiException.class)
+    public ResponseEntity<ErrorResponse> handleGitHubApiException(
+            GitHubApiException ex,
+            HttpServletRequest request) {
+        log.error("GitHub API communication error: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.BAD_GATEWAY.value(),
+                HttpStatus.BAD_GATEWAY.getReasonPhrase(),
+                "External GitHub API communication error",
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(errorResponse);
     }
 
     @ExceptionHandler(AppException.class)

@@ -2,20 +2,28 @@ package com.gitpulse.domain.repository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gitpulse.domain.repository.dto.CreateRepositoryRequest;
+import com.gitpulse.integration.github.client.GitHubRepositoryClient;
+import com.gitpulse.integration.github.dto.GitHubRepositoryResponse;
+import com.gitpulse.integration.github.exception.GitHubRateLimitExceededException;
+import com.gitpulse.integration.github.exception.GitHubResourceNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,6 +43,9 @@ class RepositoryControllerIntegrationTest {
 
     @Autowired
     private RepositoryJpaRepository repositoryJpaRepository;
+
+    @MockBean
+    private GitHubRepositoryClient gitHubRepositoryClient;
 
     @Test
     @DisplayName("POST /api/v1/repositories - Should return 201 Created for valid repository")
@@ -84,6 +95,74 @@ class RepositoryControllerIntegrationTest {
                 .andExpect(jsonPath("$.status", is(409)))
                 .andExpect(jsonPath("$.error", is("Conflict")))
                 .andExpect(jsonPath("$.message", is("Repository already exists with fullName: 'facebook/react'")));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/repositories/{id}/sync - Should return 200 OK with updated GitHub metadata")
+    void syncRepository_Success_Returns200() throws Exception {
+        Repository saved = repositoryJpaRepository.save(new Repository("elastic", "elasticsearch", "Search engine", "main"));
+
+        GitHubRepositoryResponse githubData = new GitHubRepositoryResponse();
+        githubData.setId(507775L);
+        githubData.setDescription("Free and Open, Distributed, RESTful Search Engine");
+        githubData.setDefaultBranch("main");
+        githubData.setHtmlUrl("https://github.com/elastic/elasticsearch");
+        githubData.setLanguage("Java");
+        githubData.setIsPrivate(false);
+        githubData.setStargazersCount(69000);
+        githubData.setForksCount(24000);
+        githubData.setOpenIssuesCount(2100);
+        githubData.setPushedAt(Instant.parse("2026-09-10T12:00:00Z"));
+
+        when(gitHubRepositoryClient.getRepository("elastic", "elasticsearch")).thenReturn(githubData);
+
+        mockMvc.perform(post("/api/v1/repositories/{id}/sync", saved.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(saved.getId().intValue())))
+                .andExpect(jsonPath("$.githubId", is(507775)))
+                .andExpect(jsonPath("$.description", is("Free and Open, Distributed, RESTful Search Engine")))
+                .andExpect(jsonPath("$.htmlUrl", is("https://github.com/elastic/elasticsearch")))
+                .andExpect(jsonPath("$.primaryLanguage", is("Java")))
+                .andExpect(jsonPath("$.starsCount", is(69000)))
+                .andExpect(jsonPath("$.forksCount", is(24000)))
+                .andExpect(jsonPath("$.openIssuesCount", is(2100)));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/repositories/{id}/sync - Should return 404 Not Found when local repository does not exist")
+    void syncRepository_LocalNotFound_Returns404() throws Exception {
+        mockMvc.perform(post("/api/v1/repositories/{id}/sync", 999999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status", is(404)))
+                .andExpect(jsonPath("$.message", is("Repository not found with id: '999999'")));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/repositories/{id}/sync - Should return 404 Not Found when remote GitHub repository does not exist")
+    void syncRepository_GitHubNotFound_Returns404() throws Exception {
+        Repository saved = repositoryJpaRepository.save(new Repository("nonexistent-owner", "nonexistent-repo"));
+
+        when(gitHubRepositoryClient.getRepository("nonexistent-owner", "nonexistent-repo"))
+                .thenThrow(new GitHubResourceNotFoundException("nonexistent-owner", "nonexistent-repo"));
+
+        mockMvc.perform(post("/api/v1/repositories/{id}/sync", saved.getId()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status", is(404)))
+                .andExpect(jsonPath("$.message", is("GitHub repository not found: 'nonexistent-owner/nonexistent-repo'")));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/repositories/{id}/sync - Should return 429 Too Many Requests when rate limited")
+    void syncRepository_RateLimitExceeded_Returns429() throws Exception {
+        Repository saved = repositoryJpaRepository.save(new Repository("octocat", "Spoon-Knife"));
+
+        when(gitHubRepositoryClient.getRepository("octocat", "Spoon-Knife"))
+                .thenThrow(new GitHubRateLimitExceededException("GitHub API rate limit exceeded", 0, 1700000000L));
+
+        mockMvc.perform(post("/api/v1/repositories/{id}/sync", saved.getId()))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.status", is(429)))
+                .andExpect(jsonPath("$.error", is("Too Many Requests")));
     }
 
     @Test
