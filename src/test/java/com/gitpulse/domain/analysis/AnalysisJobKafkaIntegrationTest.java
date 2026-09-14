@@ -7,6 +7,10 @@ import com.gitpulse.domain.repository.RepositoryJpaRepository;
 import com.gitpulse.integration.github.client.GitHubCommitClient;
 import com.gitpulse.integration.github.dto.GitHubCommitPageResponse;
 import com.gitpulse.integration.github.dto.GitHubCommitResponse;
+import com.gitpulse.domain.filechange.FileChangeJpaRepository;
+import com.gitpulse.integration.github.client.GitHubCommitDetailsClient;
+import com.gitpulse.integration.github.dto.GitHubCommitDetailResponse;
+import com.gitpulse.integration.github.dto.GitHubFileResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,20 +51,28 @@ class AnalysisJobKafkaIntegrationTest {
     @Autowired
     private CommitJpaRepository commitJpaRepository;
 
+    @Autowired
+    private FileChangeJpaRepository fileChangeJpaRepository;
+
     @MockBean
     private GitHubCommitClient gitHubCommitClient;
 
+    @MockBean
+    private GitHubCommitDetailsClient gitHubCommitDetailsClient;
+
     @Test
-    @DisplayName("End-to-End: AnalysisJob creation should publish Kafka event, ingest commits, and transition job to COMPLETED")
+    @DisplayName("End-to-End: AnalysisJob creation should publish Kafka event, ingest commits, ingest file changes, and transition job to COMPLETED")
     void endToEndAnalysisJobProcessing() {
         Repository repo = repositoryJpaRepository.save(new Repository("apache", "flink", "Stateful computations over data streams", "master"));
 
         GitHubCommitResponse.GitUser gitUser = new GitHubCommitResponse.GitUser("Flink Dev", "dev@flink.apache.org", Instant.now());
         GitHubCommitResponse.CommitDetails details = new GitHubCommitResponse.CommitDetails("FLINK-1234: Add streaming feature", gitUser, gitUser);
         GitHubCommitResponse.GitHubUser ghUser = new GitHubCommitResponse.GitHubUser("flinkdev", 99L);
+        String sha = "e2e_commit_sha_123456789012345678901234";
+
         GitHubCommitResponse commitResponse = new GitHubCommitResponse(
-                "e2e_commit_sha_123456789012345678901234",
-                "https://github.com/apache/flink/commit/e2e_commit_sha_123456789012345678901234",
+                sha,
+                "https://github.com/apache/flink/commit/" + sha,
                 details,
                 ghUser,
                 ghUser,
@@ -70,13 +82,36 @@ class AnalysisJobKafkaIntegrationTest {
         when(gitHubCommitClient.getCommitsPage(anyString(), anyString(), anyInt(), anyInt()))
                 .thenReturn(new GitHubCommitPageResponse(List.of(commitResponse), false));
 
+        GitHubFileResponse fileResponse = new GitHubFileResponse(
+                "flink-core/src/main/java/FlinkApp.java",
+                "added",
+                25,
+                0,
+                25,
+                "https://github.com/apache/flink/blob/" + sha + "/flink-core/src/main/java/FlinkApp.java",
+                "https://github.com/apache/flink/raw/" + sha + "/flink-core/src/main/java/FlinkApp.java",
+                null
+        );
+        GitHubCommitDetailResponse detailResponse = new GitHubCommitDetailResponse(
+                sha,
+                "https://github.com/apache/flink/commit/" + sha,
+                details,
+                ghUser,
+                ghUser,
+                new GitHubCommitResponse.CommitStats(25, 0, 25),
+                List.of(fileResponse)
+        );
+
+        when(gitHubCommitDetailsClient.getCommitDetails(anyString(), anyString(), anyString()))
+                .thenReturn(detailResponse);
+
         AnalysisJobResponse createdJob = analysisJobService.createAnalysisJob(repo.getId());
 
         assertThat(createdJob).isNotNull();
         assertThat(createdJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
         assertThat(createdJob.getRepositoryId()).isEqualTo(repo.getId());
 
-        // Await asynchronous processing by Kafka consumer & commit ingestion
+        // Await asynchronous processing by Kafka consumer, commit ingestion, and file-change ingestion
         await()
                 .atMost(Duration.ofSeconds(15))
                 .pollInterval(Duration.ofMillis(200))
@@ -89,7 +124,9 @@ class AnalysisJobKafkaIntegrationTest {
                     assertThat(job.getErrorMessage()).isNull();
 
                     assertThat(commitJpaRepository.countByRepositoryId(repo.getId())).isEqualTo(1);
-                    assertThat(commitJpaRepository.existsByRepositoryIdAndGithubCommitSha(repo.getId(), "e2e_commit_sha_123456789012345678901234")).isTrue();
+                    assertThat(commitJpaRepository.existsByRepositoryIdAndGithubCommitSha(repo.getId(), sha)).isTrue();
+
+                    assertThat(fileChangeJpaRepository.count()).isEqualTo(1);
                 });
     }
 }

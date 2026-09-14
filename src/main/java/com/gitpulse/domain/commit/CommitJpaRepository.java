@@ -21,4 +21,6 @@ public interface CommitJpaRepository extends JpaRepository<Commit, Long> {
     long countByRepositoryId(Long repositoryId);
 
     Page<Commit> findByRepositoryIdOrderByCommittedAtDesc(Long repositoryId, Pageable pageable);
+
+    Page<Commit> findByRepositoryIdOrderByIdAsc(Long repositoryId, Pageable pageable);
 }

@@ -2,7 +2,7 @@
 
 GitPulse is a GitHub Repository Activity Intelligence platform that analyzes repository history to understand code evolution, hotspots, contributor activity, and engineering-risk indicators.
 
-> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), and GitHub Commit Ingestion & Pagination (Step 5). Asynchronous repository-history commit ingestion and idempotent batch persistence are fully implemented; file-change tracking, contributor graph analytics, hotspot scoring, and Redis caching belong to future milestones.
+> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), and GitHub File-Change Ingestion (Step 6). Asynchronous commit history ingestion, commit-detail file-change tracking, and idempotent batch persistence are fully implemented; contributor graph analytics, code hotspot scoring, and Redis caching belong to future milestones.
 
 ---
 
@@ -11,8 +11,8 @@ GitPulse is a GitHub Repository Activity Intelligence platform that analyzes rep
 - **Runtime & Language**: Java 21
 - **Framework**: Spring Boot 3.3.4 (Spring Web, Spring Data JPA, Spring Validation, Spring Boot Actuator, Spring Kafka)
 - **Event Streaming & Message Broker**: Apache Kafka (KRaft mode) via `spring-kafka`
-- **HTTP Client**: Spring 6 `RestClient` (Synchronous HTTP Client with configurable timeouts, rate-limit handling, and Link header pagination)
-- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`)
+- **HTTP Client**: Spring 6 `RestClient` (Synchronous HTTP Client with configurable timeouts, rate-limit handling, Link header pagination, and commit-detail inspection)
+- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`)
 - **Connection Pool**: HikariCP (with Hibernate JDBC Batching)
 - **Build Tool**: Maven (with Maven Wrapper `./mvnw`)
 - **Infrastructure**: Docker & Docker Compose (PostgreSQL 16 Alpine, Apache Kafka 3.8.0 KRaft)
@@ -58,6 +58,13 @@ com.gitpulse
 │   │   ├── Commit.java
 │   │   ├── CommitJpaRepository.java
 │   │   └── CommitIngestionService.java
+│   ├── filechange
+│   │   ├── dto
+│   │   │   └── FileChangeIngestionResult.java
+│   │   ├── FileChange.java
+│   │   ├── FileChangeJpaRepository.java
+│   │   ├── FileChangeIngestionService.java
+│   │   └── FileChangeStatus.java (ADDED, MODIFIED, REMOVED, RENAMED, UNKNOWN)
 │   ├── repository
 │   │   ├── dto
 │   │   │   ├── CreateRepositoryRequest.java
@@ -72,13 +79,16 @@ com.gitpulse
     └── github
         ├── client
         │   ├── GitHubCommitClient.java
+        │   ├── GitHubCommitDetailsClient.java
         │   └── GitHubRepositoryClient.java
         ├── config
         │   ├── GitHubClientConfig.java
         │   └── GitHubProperties.java
         ├── dto
+        │   ├── GitHubCommitDetailResponse.java
         │   ├── GitHubCommitPageResponse.java
         │   ├── GitHubCommitResponse.java
+        │   ├── GitHubFileResponse.java
         │   └── GitHubRepositoryResponse.java
         └── exception
             ├── GitHubApiException.java (HTTP 502)
@@ -90,7 +100,7 @@ com.gitpulse
 
 ---
 
-## Asynchronous Commit Ingestion Pipeline
+## Asynchronous Ingestion Pipeline
 
 ### Lifecycle & Flow
 ```text
@@ -105,38 +115,34 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
                                                     ▼ (RUNNING)
                                            CommitIngestionService
                                                     │
-                   ┌────────────────────────────────┴────────────────────────────────┐
-                   ▼                                                                 ▼
-          GitHubCommitClient                                              CommitJpaRepository
-    (GET /repos/{owner}/{repo}/commits)                                  (Batch Duplicate Check)
-                   │                                                                 │
-                   ▼                                                                 ▼
-      RFC 5988 Link Header Pagination                                     Batch Save (commits)
-                   │                                                                 │
-                   └────────────────────────────────┬────────────────────────────────┘
+                                                    ▼ (Persist Commits)
+                                         FileChangeIngestionService
                                                     │
-                                                    ▼
+                                                    ▼ (Persist File Changes)
                                        AnalysisJob (COMPLETED / FAILED)
 ```
 
-### 1. Link Header Pagination
+### 1. Commit Ingestion & Link Header Pagination
 - Commits are fetched in discrete pages using `GET /repos/{owner}/{repo}/commits?page={page}&per_page={pageSize}` starting at `page=1`.
-- Pagination is determined solely by the presence of `rel="next"` in the RFC 5988 `Link` response header (e.g. `page=1 → page=2 → page=3`). When `rel="next"` is not present, pagination terminates immediately without fixed page limits.
+- Pagination is driven solely by the presence of `rel="next"` in the RFC 5988 `Link` response header.
+- For each page received, existing commit SHAs are identified via `findExistingGithubCommitShas` and only new commits are persisted.
 
-### 2. Batch Persistence, Deduplication & Concurrency Model
-- For each page received, `CommitJpaRepository.findExistingGithubCommitShas` executes a single SQL `IN` query to identify already-persisted SHAs for the repository.
-- Intra-page duplicate SHAs are filtered in memory before entity construction.
-- Unpersisted commits are mapped to entities and persisted in batches via Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`).
-- Concurrency model: Analysis jobs are processed sequentially per repository by the Kafka consumer worker. In case of concurrent jobs or duplicate event deliveries, the database unique constraint `uq_commits_repo_sha` (`(repository_id, github_commit_sha)`) provides storage-level idempotency and prevents duplicates.
+### 2. File-Change Ingestion & Detail Inspection
+- For persisted commits, file metadata is fetched via `GET /repos/{owner}/{repo}/commits/{sha}` using `GitHubCommitDetailsClient`.
+- Commits are processed in memory-safe chunks (50 commits per page).
+- **N+1 DB Query Prevention**: Before calling GitHub, a single batch query `findCommitIdsWithFileChanges(commitIds)` identifies which commits already have file changes persisted, skipping redundant API requests.
+- **Normalization & Mapping**: GitHub file entries are normalized into `FileChange` entities with statuses (`ADDED`, `MODIFIED`, `REMOVED`, `RENAMED`, `UNKNOWN`). For renamed files, the target `filename` is stored as `file_path`.
+- **Intra-Commit Deduplication**: Duplicate file paths returned within the same commit detail response are deduplicated in memory.
+- **Commit Stats Enrichment**: `additions`, `deletions`, and `total_changes` on the parent `Commit` entity are populated if they were null during list ingestion.
 
-### 3. Commit Statistics & N+1 Prevention
-- GitHub's `GET /repos/{owner}/{repo}/commits` list endpoint does not provide per-commit diff statistics (`additions`, `deletions`, `total`).
-- The `additions`, `deletions`, and `total_changes` columns in `commits` table are defined as nullable and are stored as `null` during commit listing.
-- Deep diff inspection via individual commit endpoints (`GET /repos/{owner}/{repo}/commits/{sha}`) is deferred to future analytical milestones to prevent N+1 API roundtrips and avoid consuming GitHub API rate limits.
+### 3. API Limitations & Edge Cases
+- **GitHub 300-File Limit**: GitHub's commit detail endpoint returns up to 300 files per commit. The pipeline persists all files provided in the response without repository cloning.
+- **Zero-File Commits**: Commits returning `files: []` (e.g. merge commits without file alterations or empty commits) produce no `FileChange` rows. In Step 6, these commit IDs will not appear in `findCommitIdsWithFileChanges` and may be queried again upon re-analysis.
+- **Error Propagation**: Any unrecoverable GitHub error (such as HTTP 403/429 rate limit or 5xx server errors) fails the `AnalysisJob` immediately, recording the `errorReason` on the job rather than producing incomplete analysis data.
 
-### 4. Transaction Boundaries & Memory Management
-- Ingestion operates page-by-page. Commit persistence occurs in discrete per-batch database transactions rather than one giant transaction covering the entire repository history.
-- Full repository commit histories are never loaded into a single unbounded in-memory collection.
+### 4. Database Schema & Batch Persistence
+- `commits` and `file_changes` tables enforce composite unique constraints (`uq_commits_repo_sha` and `uq_file_changes_commit_file`) guaranteeing storage-layer idempotency.
+- File changes are saved using Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`) in discrete transactions per batch.
 
 ---
 
@@ -163,6 +169,18 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
   - `created_at TIMESTAMPTZ NOT NULL`
   - `CONSTRAINT uq_commits_repo_sha UNIQUE (repository_id, github_commit_sha)`
   - Indexes: `idx_commits_repository_id`, `idx_commits_repo_committed_at`.
+
+### Flyway V4: File Changes Schema (`V4__create_file_changes_table.sql`)
+- Created `file_changes` table:
+  - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
+  - `commit_id BIGINT NOT NULL REFERENCES commits(id) ON DELETE CASCADE`
+  - `file_path VARCHAR(500) NOT NULL`
+  - `status VARCHAR(50) NOT NULL`
+  - `additions INTEGER`, `deletions INTEGER`, `changes INTEGER`
+  - `blob_url VARCHAR(500)`, `raw_url VARCHAR(500)`
+  - `created_at TIMESTAMPTZ NOT NULL`
+  - `CONSTRAINT uq_file_changes_commit_file UNIQUE (commit_id, file_path)`
+  - Indexes: `idx_file_changes_commit_id`, `idx_file_changes_file_path`.
 
 ---
 

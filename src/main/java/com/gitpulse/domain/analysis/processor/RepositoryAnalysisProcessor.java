@@ -5,6 +5,8 @@ import com.gitpulse.domain.analysis.AnalysisJobJpaRepository;
 import com.gitpulse.domain.analysis.AnalysisJobStatus;
 import com.gitpulse.domain.commit.CommitIngestionService;
 import com.gitpulse.domain.commit.dto.CommitIngestionResult;
+import com.gitpulse.domain.filechange.FileChangeIngestionService;
+import com.gitpulse.domain.filechange.dto.FileChangeIngestionResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,11 +20,14 @@ public class RepositoryAnalysisProcessor {
 
     private final AnalysisJobJpaRepository analysisJobJpaRepository;
     private final CommitIngestionService commitIngestionService;
+    private final FileChangeIngestionService fileChangeIngestionService;
 
     public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository,
-                                       CommitIngestionService commitIngestionService) {
+                                       CommitIngestionService commitIngestionService,
+                                       FileChangeIngestionService fileChangeIngestionService) {
         this.analysisJobJpaRepository = analysisJobJpaRepository;
         this.commitIngestionService = commitIngestionService;
+        this.fileChangeIngestionService = fileChangeIngestionService;
     }
 
     public void processJob(Long jobId) {
@@ -60,12 +65,19 @@ public class RepositoryAnalysisProcessor {
             analysisJobJpaRepository.saveAndFlush(job);
             log.info("Analysis job [id={}, repo={}] transitioned to RUNNING", jobId, repoFullName);
 
-            // Real GitHub Commit Ingestion
-            CommitIngestionResult result = commitIngestionService.ingestCommits(repositoryId, jobId);
+            // Step 1: Real GitHub Commit Ingestion
+            CommitIngestionResult commitResult = commitIngestionService.ingestCommits(repositoryId, jobId);
 
             log.info("Analysis job [id={}] commit ingestion finished in {}ms: pages={}, received={}, inserted={}, duplicates={}",
-                    jobId, result.getDurationMs(), result.getPagesProcessed(), result.getCommitsReceived(),
-                    result.getCommitsInserted(), result.getDuplicatesEncountered());
+                    jobId, commitResult.getDurationMs(), commitResult.getPagesProcessed(), commitResult.getCommitsReceived(),
+                    commitResult.getCommitsInserted(), commitResult.getDuplicatesEncountered());
+
+            // Step 2: Real GitHub File Change Ingestion
+            FileChangeIngestionResult fileResult = fileChangeIngestionService.ingestFileChanges(repositoryId, jobId);
+
+            log.info("Analysis job [id={}] file-change ingestion finished in {}ms: commitsProcessed={}, commitsSkipped={}, filesReceived={}, filesInserted={}, duplicates={}",
+                    jobId, fileResult.getDurationMs(), fileResult.getCommitsProcessed(), fileResult.getCommitsSkipped(),
+                    fileResult.getFilesReceived(), fileResult.getFilesInserted(), fileResult.getDuplicatesEncountered());
 
             // Transition state: RUNNING -> COMPLETED
             job.markCompleted();
