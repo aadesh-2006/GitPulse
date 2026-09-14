@@ -3,10 +3,11 @@ package com.gitpulse.domain.analysis.processor;
 import com.gitpulse.domain.analysis.AnalysisJob;
 import com.gitpulse.domain.analysis.AnalysisJobJpaRepository;
 import com.gitpulse.domain.analysis.AnalysisJobStatus;
+import com.gitpulse.domain.commit.CommitIngestionService;
+import com.gitpulse.domain.commit.dto.CommitIngestionResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -16,14 +17,16 @@ public class RepositoryAnalysisProcessor {
     private static final Logger log = LoggerFactory.getLogger(RepositoryAnalysisProcessor.class);
 
     private final AnalysisJobJpaRepository analysisJobJpaRepository;
+    private final CommitIngestionService commitIngestionService;
 
-    public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository) {
+    public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository,
+                                       CommitIngestionService commitIngestionService) {
         this.analysisJobJpaRepository = analysisJobJpaRepository;
+        this.commitIngestionService = commitIngestionService;
     }
 
-    @Transactional
     public void processJob(Long jobId) {
-        Optional<AnalysisJob> optionalJob = analysisJobJpaRepository.findById(jobId);
+        Optional<AnalysisJob> optionalJob = analysisJobJpaRepository.findWithRepositoryById(jobId);
 
         if (optionalJob.isEmpty()) {
             log.warn("Cannot process analysis job: Job [id={}] not found in database", jobId);
@@ -48,34 +51,31 @@ public class RepositoryAnalysisProcessor {
             return;
         }
 
+        Long repositoryId = job.getRepository().getId();
+        String repoFullName = job.getRepository().getFullName();
+
         try {
             // Transition state: PENDING -> RUNNING
             job.markRunning();
-            analysisJobJpaRepository.save(job);
-            log.info("Analysis job [id={}, repo={}] transitioned to RUNNING", jobId, job.getRepository().getFullName());
+            analysisJobJpaRepository.saveAndFlush(job);
+            log.info("Analysis job [id={}, repo={}] transitioned to RUNNING", jobId, repoFullName);
 
-            // Placeholder for future analysis (commit ingestion, hotspot calculations)
-            executeAnalysis(job);
+            // Real GitHub Commit Ingestion
+            CommitIngestionResult result = commitIngestionService.ingestCommits(repositoryId, jobId);
+
+            log.info("Analysis job [id={}] commit ingestion finished in {}ms: pages={}, received={}, inserted={}, duplicates={}",
+                    jobId, result.getDurationMs(), result.getPagesProcessed(), result.getCommitsReceived(),
+                    result.getCommitsInserted(), result.getDuplicatesEncountered());
 
             // Transition state: RUNNING -> COMPLETED
             job.markCompleted();
-            analysisJobJpaRepository.save(job);
-            log.info("Analysis job [id={}, repo={}] transitioned to COMPLETED", jobId, job.getRepository().getFullName());
+            analysisJobJpaRepository.saveAndFlush(job);
+            log.info("Analysis job [id={}, repo={}] transitioned to COMPLETED", jobId, repoFullName);
 
         } catch (Exception ex) {
             log.error("Error executing analysis for job [id={}]: {}", jobId, ex.getMessage(), ex);
             job.markFailed(ex.getMessage());
-            analysisJobJpaRepository.save(job);
+            analysisJobJpaRepository.saveAndFlush(job);
         }
-    }
-
-    /**
-     * Placeholder processing simulating future asynchronous analysis.
-     * Real commit ingestion, diff parsing, and hotspot metrics will replace this in future milestones.
-     */
-    protected void executeAnalysis(AnalysisJob job) {
-        log.info("Executing simulated repository analysis for [jobId={}, repo={}]",
-                job.getId(), job.getRepository().getFullName());
-        // Placeholder work for Step 4
     }
 }

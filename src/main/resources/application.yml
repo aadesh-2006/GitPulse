@@ -23,6 +23,11 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
@@ -54,6 +59,7 @@ github:
     token: ${GITHUB_TOKEN:}
     connect-timeout: ${GITHUB_CONNECT_TIMEOUT:5s}
     read-timeout: ${GITHUB_READ_TIMEOUT:10s}
+    commit-page-size: ${GITHUB_COMMIT_PAGE_SIZE:30}
 
 server:
   port: ${SERVER_PORT:8080}

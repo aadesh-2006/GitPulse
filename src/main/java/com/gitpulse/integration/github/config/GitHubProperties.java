@@ -11,6 +11,7 @@ public class GitHubProperties {
     private String token;
     private Duration connectTimeout = Duration.ofSeconds(5);
     private Duration readTimeout = Duration.ofSeconds(10);
+    private int commitPageSize = 30;
 
     public String getBaseUrl() {
         return baseUrl;
@@ -42,5 +43,19 @@ public class GitHubProperties {
 
     public void setReadTimeout(Duration readTimeout) {
         this.readTimeout = readTimeout;
+    }
+
+    public int getCommitPageSize() {
+        return commitPageSize;
+    }
+
+    public void setCommitPageSize(int commitPageSize) {
+        if (commitPageSize < 1) {
+            this.commitPageSize = 1;
+        } else if (commitPageSize > 100) {
+            this.commitPageSize = 100;
+        } else {
+            this.commitPageSize = commitPageSize;
+        }
     }
 }
