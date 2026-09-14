@@ -122,6 +122,37 @@ class CommitIngestionServiceTest {
     }
 
     @Test
+    @DisplayName("Should skip intra-page duplicate commit SHAs when GitHub returns identical SHA multiple times in one page")
+    void skipIntraPageDuplicateCommits() {
+        when(repositoryJpaRepository.findById(1L)).thenReturn(Optional.of(testRepository));
+        when(gitHubProperties.getCommitPageSize()).thenReturn(30);
+
+        GitHubCommitResponse commit1 = createCommitResponse("sha1", "Message 1", "Dev 1", "dev1@test.com", "dev1", Instant.now(), null, null, null);
+        GitHubCommitResponse duplicateCommit1 = createCommitResponse("sha1", "Message 1 duplicate", "Dev 1", "dev1@test.com", "dev1", Instant.now(), null, null, null);
+        GitHubCommitResponse commit2 = createCommitResponse("sha2", "Message 2", "Dev 2", "dev2@test.com", "dev2", Instant.now(), null, null, null);
+
+        GitHubCommitPageResponse page = new GitHubCommitPageResponse(List.of(commit1, duplicateCommit1, commit2), false);
+
+        when(gitHubCommitClient.getCommitsPage("octocat", "Hello-World", 1, 30)).thenReturn(page);
+        when(commitJpaRepository.findExistingGithubCommitShas(1L, List.of("sha1", "sha1", "sha2"))).thenReturn(Collections.emptyList());
+
+        CommitIngestionResult result = commitIngestionService.ingestCommits(1L, 100L);
+
+        assertThat(result.getPagesProcessed()).isEqualTo(1);
+        assertThat(result.getCommitsReceived()).isEqualTo(3);
+        assertThat(result.getCommitsInserted()).isEqualTo(2);
+        assertThat(result.getDuplicatesEncountered()).isEqualTo(1);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Commit>> captor = ArgumentCaptor.forClass(List.class);
+        verify(commitJpaRepository).saveAll(captor.capture());
+
+        List<Commit> savedCommits = captor.getValue();
+        assertThat(savedCommits).hasSize(2);
+        assertThat(savedCommits.stream().map(Commit::getGithubCommitSha)).containsExactly("sha1", "sha2");
+    }
+
+    @Test
     @DisplayName("Should handle empty repository gracefully without inserting commits")
     void emptyRepository() {
         when(repositoryJpaRepository.findById(1L)).thenReturn(Optional.of(testRepository));

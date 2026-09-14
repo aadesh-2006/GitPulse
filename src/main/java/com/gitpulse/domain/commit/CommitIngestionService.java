@@ -88,8 +88,10 @@ public class CommitIngestionService {
             int pageDuplicates = 0;
 
             for (GitHubCommitResponse dto : commits) {
-                if (dto.getSha() != null && !existingShas.contains(dto.getSha())) {
+                String sha = dto.getSha();
+                if (sha != null && !sha.isBlank() && !existingShas.contains(sha)) {
                     newEntities.add(mapToEntity(repository, dto));
+                    existingShas.add(sha);
                 } else {
                     pageDuplicates++;
                 }

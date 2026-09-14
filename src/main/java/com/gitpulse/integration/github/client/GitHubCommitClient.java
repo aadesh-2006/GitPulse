@@ -89,6 +89,9 @@ public class GitHubCommitClient {
         }
     }
 
+    private static final java.util.regex.Pattern REL_NEXT_PATTERN =
+            java.util.regex.Pattern.compile("(?i)rel\\s*=\\s*[\"']?next[\"']?");
+
     public static boolean parseHasNextPage(String linkHeader) {
         if (linkHeader == null || linkHeader.isBlank()) {
             return false;
@@ -99,8 +102,8 @@ public class GitHubCommitClient {
             String[] segments = link.split(";");
             if (segments.length >= 2) {
                 for (int i = 1; i < segments.length; i++) {
-                    String param = segments[i].trim().toLowerCase();
-                    if (param.equals("rel=\"next\"") || param.equals("rel='next'") || param.equals("rel=next")) {
+                    String param = segments[i].trim();
+                    if (REL_NEXT_PATTERN.matcher(param).matches()) {
                         return true;
                     }
                 }

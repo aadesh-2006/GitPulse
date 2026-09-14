@@ -288,12 +288,32 @@ class GitHubCommitClientTest {
     @Test
     @DisplayName("Link header parser should correctly handle multiple links and formats")
     void linkHeaderParsing() {
+        // Missing or empty Link header
         assertThat(GitHubCommitClient.parseHasNextPage(null)).isFalse();
         assertThat(GitHubCommitClient.parseHasNextPage("")).isFalse();
-        assertThat(GitHubCommitClient.parseHasNextPage("<url>; rel=\"last\"")).isFalse();
-        assertThat(GitHubCommitClient.parseHasNextPage("<url>; rel=\"next\"")).isTrue();
+        assertThat(GitHubCommitClient.parseHasNextPage("   ")).isFalse();
+
+        // Last without next
+        assertThat(GitHubCommitClient.parseHasNextPage("<https://api.github.com/repos/o/r/commits?page=5>; rel=\"last\"")).isFalse();
+        assertThat(GitHubCommitClient.parseHasNextPage("<https://api.github.com/repos/o/r/commits?page=1>; rel=\"first\", <https://api.github.com/repos/o/r/commits?page=2>; rel=\"prev\"")).isFalse();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel=\"last\", <url2>; rel=\"first\", <url3>; rel=\"prev\"")).isFalse();
+
+        // Next + Last
+        assertThat(GitHubCommitClient.parseHasNextPage("<https://api.github.com/repos/o/r/commits?page=2>; rel=\"next\", <https://api.github.com/repos/o/r/commits?page=5>; rel=\"last\"")).isTrue();
+
+        // Different Link relation ordering (last before next)
+        assertThat(GitHubCommitClient.parseHasNextPage("<https://api.github.com/repos/o/r/commits?page=5>; rel=\"last\", <https://api.github.com/repos/o/r/commits?page=2>; rel=\"next\"")).isTrue();
+
+        // Relation ordering with first, prev, next, last
         assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel=\"prev\", <url2>; rel=\"next\", <url3>; rel=\"last\"")).isTrue();
-        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel=\"prev\", <url2>; rel=\"last\"")).isFalse();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel=\"first\", <url2>; rel=\"prev\", <url3>; rel=\"next\", <url4>; rel=\"last\"")).isTrue();
+
+        // Variations in quotes, case, and whitespace
         assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel=next")).isTrue();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel='next'")).isTrue();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; REL=\"NEXT\"")).isTrue();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel = \"next\"")).isTrue();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel = next")).isTrue();
+        assertThat(GitHubCommitClient.parseHasNextPage("<url1>; rel=\"next\"; title=\"Next Page\"")).isTrue();
     }
 }

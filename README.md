@@ -120,16 +120,23 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 ```
 
 ### 1. Link Header Pagination
-- Commits are fetched in pages using `GET /repos/{owner}/{repo}/commits?page={page}&per_page={pageSize}`.
-- Pagination is driven by RFC 5988 `Link` response headers: the presence of `rel="next"` signifies that further pages exist; absence indicates the final page.
+- Commits are fetched in discrete pages using `GET /repos/{owner}/{repo}/commits?page={page}&per_page={pageSize}` starting at `page=1`.
+- Pagination is determined solely by the presence of `rel="next"` in the RFC 5988 `Link` response header (e.g. `page=1 → page=2 → page=3`). When `rel="next"` is not present, pagination terminates immediately without fixed page limits.
 
-### 2. Batch Persistence & Idempotency
-- For each page of commits received from GitHub, a single batch query checks for existing commit SHAs (`findExistingGithubCommitShas`).
-- Only new commits are mapped to entities and persisted using Hibernate JDBC batching (`saveAll`).
-- The database unique constraint `uq_commits_repo_sha` (`(repository_id, github_commit_sha)`) provides the ultimate guarantee against duplicates during concurrent ingestion or retries.
+### 2. Batch Persistence, Deduplication & Concurrency Model
+- For each page received, `CommitJpaRepository.findExistingGithubCommitShas` executes a single SQL `IN` query to identify already-persisted SHAs for the repository.
+- Intra-page duplicate SHAs are filtered in memory before entity construction.
+- Unpersisted commits are mapped to entities and persisted in batches via Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`).
+- Concurrency model: Analysis jobs are processed sequentially per repository by the Kafka consumer worker. In case of concurrent jobs or duplicate event deliveries, the database unique constraint `uq_commits_repo_sha` (`(repository_id, github_commit_sha)`) provides storage-level idempotency and prevents duplicates.
 
-### 3. Memory & Resource Boundedness
-- Ingestion operates page-by-page. Full repository commit history is never accumulated into a single unbounded in-memory collection.
+### 3. Commit Statistics & N+1 Prevention
+- GitHub's `GET /repos/{owner}/{repo}/commits` list endpoint does not provide per-commit diff statistics (`additions`, `deletions`, `total`).
+- The `additions`, `deletions`, and `total_changes` columns in `commits` table are defined as nullable and are stored as `null` during commit listing.
+- Deep diff inspection via individual commit endpoints (`GET /repos/{owner}/{repo}/commits/{sha}`) is deferred to future analytical milestones to prevent N+1 API roundtrips and avoid consuming GitHub API rate limits.
+
+### 4. Transaction Boundaries & Memory Management
+- Ingestion operates page-by-page. Commit persistence occurs in discrete per-batch database transactions rather than one giant transaction covering the entire repository history.
+- Full repository commit histories are never loaded into a single unbounded in-memory collection.
 
 ---
 
