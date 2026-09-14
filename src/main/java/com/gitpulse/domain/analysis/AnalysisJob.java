@@ -63,6 +63,34 @@ public class AnalysisJob {
         this.status = status != null ? status : AnalysisJobStatus.PENDING;
     }
 
+    public void markRunning() {
+        if (this.status != AnalysisJobStatus.PENDING) {
+            throw new IllegalStateException(String.format("Invalid state transition: Cannot transition job [id=%s] from %s to RUNNING", id, status));
+        }
+        this.status = AnalysisJobStatus.RUNNING;
+        this.startedAt = Instant.now();
+    }
+
+    public void markCompleted() {
+        if (this.status != AnalysisJobStatus.RUNNING) {
+            throw new IllegalStateException(String.format("Invalid state transition: Cannot transition job [id=%s] from %s to COMPLETED", id, status));
+        }
+        this.status = AnalysisJobStatus.COMPLETED;
+        this.completedAt = Instant.now();
+        this.errorMessage = null;
+    }
+
+    public void markFailed(String errorMessage) {
+        if (this.status == AnalysisJobStatus.COMPLETED) {
+            throw new IllegalStateException(String.format("Invalid state transition: Cannot fail an already COMPLETED job [id=%s]", id));
+        }
+        this.status = AnalysisJobStatus.FAILED;
+        this.completedAt = Instant.now();
+        this.errorMessage = errorMessage != null && errorMessage.length() > 1000
+                ? errorMessage.substring(0, 1000)
+                : errorMessage;
+    }
+
     @PrePersist
     protected void onCreate() {
         Instant now = Instant.now();

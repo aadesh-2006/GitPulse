@@ -24,6 +24,30 @@ spring:
     hibernate:
       ddl-auto: validate
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: true
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:gitpulse-analysis-group}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "com.gitpulse.*"
+
+kafka:
+  topics:
+    analysis-jobs: ${KAFKA_TOPIC_ANALYSIS_JOBS:analysis-jobs}
+    analysis-jobs-dlt: ${KAFKA_TOPIC_ANALYSIS_JOBS_DLT:analysis-jobs.DLT}
+  consumer:
+    group-id: ${KAFKA_CONSUMER_GROUP:gitpulse-analysis-group}
+    concurrency: ${KAFKA_CONSUMER_CONCURRENCY:1}
+
 github:
   api:
     base-url: ${GITHUB_API_BASE_URL:https://api.github.com}

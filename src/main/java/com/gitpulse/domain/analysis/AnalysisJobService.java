@@ -2,6 +2,8 @@ package com.gitpulse.domain.analysis;
 
 import com.gitpulse.common.exception.ResourceNotFoundException;
 import com.gitpulse.domain.analysis.dto.AnalysisJobResponse;
+import com.gitpulse.domain.analysis.event.AnalysisJobCreatedEvent;
+import com.gitpulse.domain.analysis.producer.AnalysisJobEventProducer;
 import com.gitpulse.domain.repository.Repository;
 import com.gitpulse.domain.repository.RepositoryService;
 import org.slf4j.Logger;
@@ -18,11 +20,15 @@ public class AnalysisJobService {
 
     private final AnalysisJobJpaRepository analysisJobJpaRepository;
     private final RepositoryService repositoryService;
+    private final AnalysisJobEventProducer analysisJobEventProducer;
 
-    public AnalysisJobService(AnalysisJobJpaRepository analysisJobJpaRepository,
-                              RepositoryService repositoryService) {
+    public AnalysisJobService(
+            AnalysisJobJpaRepository analysisJobJpaRepository,
+            RepositoryService repositoryService,
+            AnalysisJobEventProducer analysisJobEventProducer) {
         this.analysisJobJpaRepository = analysisJobJpaRepository;
         this.repositoryService = repositoryService;
+        this.analysisJobEventProducer = analysisJobEventProducer;
     }
 
     @Transactional
@@ -32,8 +38,15 @@ public class AnalysisJobService {
         AnalysisJob job = new AnalysisJob(repository, AnalysisJobStatus.PENDING);
         AnalysisJob saved = analysisJobJpaRepository.save(job);
 
-        log.info("Created analysis job [id={}, repositoryId={}, status={}]",
-                saved.getId(), repository.getId(), saved.getStatus());
+        log.info("Created PENDING analysis job [id={}, repositoryId={}]", saved.getId(), repository.getId());
+
+        // Publish event to Kafka for asynchronous pipeline execution
+        AnalysisJobCreatedEvent event = AnalysisJobCreatedEvent.of(
+                saved.getId(),
+                repository.getId(),
+                repository.getFullName()
+        );
+        analysisJobEventProducer.sendAnalysisJobCreatedEvent(event);
 
         return AnalysisJobResponse.fromEntity(saved);
     }

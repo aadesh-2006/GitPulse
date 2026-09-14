@@ -1,5 +1,6 @@
 package com.gitpulse.domain.analysis;
 
+import com.gitpulse.domain.analysis.producer.AnalysisJobEventProducer;
 import com.gitpulse.domain.repository.Repository;
 import com.gitpulse.domain.repository.RepositoryJpaRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -7,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -34,6 +36,9 @@ class AnalysisJobControllerIntegrationTest {
 
     @Autowired
     private AnalysisJobJpaRepository analysisJobJpaRepository;
+
+    @MockBean
+    private AnalysisJobEventProducer analysisJobEventProducer;
 
     @Test
     @DisplayName("POST /api/v1/repositories/{repositoryId}/analysis-jobs - Should return 201 Created with PENDING status")

@@ -2,12 +2,15 @@ package com.gitpulse.domain.analysis;
 
 import com.gitpulse.common.exception.ResourceNotFoundException;
 import com.gitpulse.domain.analysis.dto.AnalysisJobResponse;
+import com.gitpulse.domain.analysis.event.AnalysisJobCreatedEvent;
+import com.gitpulse.domain.analysis.producer.AnalysisJobEventProducer;
 import com.gitpulse.domain.repository.Repository;
 import com.gitpulse.domain.repository.RepositoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,6 +34,9 @@ class AnalysisJobServiceTest {
     @Mock
     private RepositoryService repositoryService;
 
+    @Mock
+    private AnalysisJobEventProducer analysisJobEventProducer;
+
     @InjectMocks
     private AnalysisJobService analysisJobService;
 
@@ -47,7 +53,7 @@ class AnalysisJobServiceTest {
     }
 
     @Test
-    @DisplayName("Should successfully create a PENDING analysis job for an existing repository")
+    @DisplayName("Should successfully create a PENDING analysis job and publish AnalysisJobCreatedEvent")
     void createAnalysisJob_Success() {
         when(repositoryService.findEntityById(10L)).thenReturn(sampleRepository);
         when(analysisJobJpaRepository.save(any(AnalysisJob.class))).thenReturn(sampleJob);
@@ -62,6 +68,14 @@ class AnalysisJobServiceTest {
 
         verify(repositoryService).findEntityById(10L);
         verify(analysisJobJpaRepository).save(any(AnalysisJob.class));
+
+        ArgumentCaptor<AnalysisJobCreatedEvent> eventCaptor = ArgumentCaptor.forClass(AnalysisJobCreatedEvent.class);
+        verify(analysisJobEventProducer).sendAnalysisJobCreatedEvent(eventCaptor.capture());
+
+        AnalysisJobCreatedEvent capturedEvent = eventCaptor.getValue();
+        assertThat(capturedEvent.getAnalysisJobId()).isEqualTo(100L);
+        assertThat(capturedEvent.getRepositoryId()).isEqualTo(10L);
+        assertThat(capturedEvent.getRepositoryFullName()).isEqualTo("spring-projects/spring-boot");
     }
 
     @Test
@@ -75,6 +89,7 @@ class AnalysisJobServiceTest {
                 .hasMessageContaining("Repository not found with id: '999'");
 
         verify(analysisJobJpaRepository, never()).save(any());
+        verify(analysisJobEventProducer, never()).sendAnalysisJobCreatedEvent(any());
     }
 
     @Test
