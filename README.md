@@ -2,7 +2,7 @@
 
 GitPulse is a GitHub Repository Activity Intelligence platform that analyzes repository history to understand code evolution, hotspots, contributor activity, and engineering-risk indicators.
 
-> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), and GitHub File-Change Ingestion (Step 6). Asynchronous commit history ingestion, commit-detail file-change tracking, and idempotent batch persistence are fully implemented; contributor graph analytics, code hotspot scoring, and Redis caching belong to future milestones.
+> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), and Contributor Domain & Activity Attribution (Step 7). Asynchronous commit history ingestion, commit-detail file-change tracking, and materialized contributor attribution aggregation are fully implemented; code hotspot scoring, risk analytics, and Redis caching belong to future milestones.
 
 ---
 
@@ -12,7 +12,7 @@ GitPulse is a GitHub Repository Activity Intelligence platform that analyzes rep
 - **Framework**: Spring Boot 3.3.4 (Spring Web, Spring Data JPA, Spring Validation, Spring Boot Actuator, Spring Kafka)
 - **Event Streaming & Message Broker**: Apache Kafka (KRaft mode) via `spring-kafka`
 - **HTTP Client**: Spring 6 `RestClient` (Synchronous HTTP Client with configurable timeouts, rate-limit handling, Link header pagination, and commit-detail inspection)
-- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`)
+- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`, `V5`)
 - **Connection Pool**: HikariCP (with Hibernate JDBC Batching)
 - **Build Tool**: Maven (with Maven Wrapper `./mvnw`)
 - **Infrastructure**: Docker & Docker Compose (PostgreSQL 16 Alpine, Apache Kafka 3.8.0 KRaft)
@@ -52,12 +52,25 @@ com.gitpulse
 │   │   ├── AnalysisJobJpaRepository.java
 │   │   ├── AnalysisJobService.java
 │   │   └── AnalysisJobStatus.java (PENDING, RUNNING, COMPLETED, FAILED)
+│   ├── analytics
 │   ├── commit
 │   │   ├── dto
 │   │   │   └── CommitIngestionResult.java
 │   │   ├── Commit.java
 │   │   ├── CommitJpaRepository.java
 │   │   └── CommitIngestionService.java
+│   ├── contributor
+│   │   ├── dto
+│   │   │   ├── ContributorAggregationResult.java
+│   │   │   ├── ContributorAggregationRow.java
+│   │   │   ├── ContributorResponse.java
+│   │   │   └── RepositoryContributorResponse.java
+│   │   ├── Contributor.java
+│   │   ├── ContributorController.java
+│   │   ├── ContributorJpaRepository.java
+│   │   ├── ContributorService.java
+│   │   ├── ContributorAggregationService.java
+│   │   └── RepositoryContributorJpaRepository.java
 │   ├── filechange
 │   │   ├── dto
 │   │   │   └── FileChangeIngestionResult.java
@@ -65,16 +78,14 @@ com.gitpulse
 │   │   ├── FileChangeJpaRepository.java
 │   │   ├── FileChangeIngestionService.java
 │   │   └── FileChangeStatus.java (ADDED, MODIFIED, REMOVED, RENAMED, UNKNOWN)
-│   ├── repository
-│   │   ├── dto
-│   │   │   ├── CreateRepositoryRequest.java
-│   │   │   └── RepositoryResponse.java
-│   │   ├── Repository.java
-│   │   ├── RepositoryController.java
-│   │   ├── RepositoryJpaRepository.java
-│   │   └── RepositoryService.java
-│   ├── analytics
-│   └── contributor
+│   └── repository
+│       ├── dto
+│       │   ├── CreateRepositoryRequest.java
+│       │   └── RepositoryResponse.java
+│       ├── Repository.java
+│       ├── RepositoryController.java
+│       ├── RepositoryJpaRepository.java
+│       └── RepositoryService.java
 └── integration
     └── github
         ├── client
@@ -119,6 +130,9 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
                                          FileChangeIngestionService
                                                     │
                                                     ▼ (Persist File Changes)
+                                       ContributorAggregationService
+                                                    │
+                                                    ▼ (Aggregate & Persist Contributors)
                                        AnalysisJob (COMPLETED / FAILED)
 ```
 
@@ -135,52 +149,51 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - **Intra-Commit Deduplication**: Duplicate file paths returned within the same commit detail response are deduplicated in memory.
 - **Commit Stats Enrichment**: `additions`, `deletions`, and `total_changes` on the parent `Commit` entity are populated if they were null during list ingestion.
 
-### 3. API Limitations & Edge Cases
-- **GitHub 300-File Limit**: GitHub's commit detail endpoint returns up to 300 files per commit. The pipeline persists all files provided in the response without repository cloning.
-- **Zero-File Commits**: Commits returning `files: []` (e.g. merge commits without file alterations or empty commits) produce no `FileChange` rows. In Step 6, these commit IDs will not appear in `findCommitIdsWithFileChanges` and may be queried again upon re-analysis.
-- **Error Propagation**: Any unrecoverable GitHub error (such as HTTP 403/429 rate limit or 5xx server errors) fails the `AnalysisJob` immediately, recording the `errorReason` on the job rather than producing incomplete analysis data.
+### 3. Contributor Attribution & Materialized Aggregation
+- **Database-Driven Aggregation**: PostgreSQL performs heavy GROUP BY aggregations across the `commits` table in a single query. Thousands of `Commit` entities are never loaded into application memory.
+- **Attribution Key Semantics**: `author_email` is used as the current attribution key. Email is treated strictly as an attribution identifier rather than a guaranteed unique biological human identity. Different email addresses used by the same person are tracked as distinct contributor attribution identities.
+- **Deterministic Name/Username Resolution**: Contributor profiles adopt the most recent non-null author name and username associated with that email.
+- **Idempotent Re-analysis**: Re-running an analysis recalculates cumulative metrics from scratch and replaces existing `RepositoryContributor` stats rather than incrementing, preventing double-counting.
+- **Zero API Calls**: Contributor aggregation operates completely on database state without making additional GitHub API requests.
 
 ### 4. Database Schema & Batch Persistence
-- `commits` and `file_changes` tables enforce composite unique constraints (`uq_commits_repo_sha` and `uq_file_changes_commit_file`) guaranteeing storage-layer idempotency.
-- File changes are saved using Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`) in discrete transactions per batch.
+- `commits`, `file_changes`, and `repository_contributors` tables enforce composite unique constraints (`uq_commits_repo_sha`, `uq_file_changes_commit_file`, and `uq_repo_contrib`) guaranteeing storage-layer idempotency.
+- Persistence uses Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`) in discrete transactions per stage.
 
 ---
 
 ## Database Migrations
 
 ### Flyway V1: Initial Schema (`V1__create_repository_and_analysis_job_tables.sql`)
-- Created `repositories` and `analysis_jobs` tables with identity PKs, unique constraints, and foreign keys.
+- Created `repositories` and `analysis_jobs` tables.
 
 ### Flyway V2: GitHub Metadata (`V2__add_github_metadata_to_repositories.sql`)
-- Enriched `repositories` table with `html_url`, `primary_language`, `is_private`, `pushed_at`, `stars_count`, `forks_count`, and `open_issues_count`.
+- Enriched `repositories` with stars, forks, language, privacy, and GitHub ID.
 
 ### Flyway V3: Commits Schema (`V3__create_commits_table.sql`)
-- Created `commits` table:
-  - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
-  - `repository_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE`
-  - `github_commit_sha VARCHAR(40) NOT NULL`
-  - `message TEXT NOT NULL`
-  - `author_name VARCHAR(200)`
-  - `author_email VARCHAR(200)`
-  - `author_username VARCHAR(100)`
-  - `committed_at TIMESTAMPTZ NOT NULL`
-  - `additions INTEGER`, `deletions INTEGER`, `total_changes INTEGER`
-  - `html_url VARCHAR(300)`
-  - `created_at TIMESTAMPTZ NOT NULL`
-  - `CONSTRAINT uq_commits_repo_sha UNIQUE (repository_id, github_commit_sha)`
-  - Indexes: `idx_commits_repository_id`, `idx_commits_repo_committed_at`.
+- Created `commits` table with `uq_commits_repo_sha` and indexing on `(repository_id, committed_at)`.
 
 ### Flyway V4: File Changes Schema (`V4__create_file_changes_table.sql`)
-- Created `file_changes` table:
+- Created `file_changes` table with `uq_file_changes_commit_file` and indexing on `commit_id` and `file_path`.
+
+### Flyway V5: Contributors & Attributions Schema (`V5__create_contributors_and_attributions_tables.sql`)
+- Created `contributors` table:
   - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
-  - `commit_id BIGINT NOT NULL REFERENCES commits(id) ON DELETE CASCADE`
-  - `file_path VARCHAR(500) NOT NULL`
-  - `status VARCHAR(50) NOT NULL`
-  - `additions INTEGER`, `deletions INTEGER`, `changes INTEGER`
-  - `blob_url VARCHAR(500)`, `raw_url VARCHAR(500)`
-  - `created_at TIMESTAMPTZ NOT NULL`
-  - `CONSTRAINT uq_file_changes_commit_file UNIQUE (commit_id, file_path)`
-  - Indexes: `idx_file_changes_commit_id`, `idx_file_changes_file_path`.
+  - `email VARCHAR(200) NOT NULL UNIQUE`
+  - `username VARCHAR(100)`, `name VARCHAR(200)`, `avatar_url VARCHAR(500)`, `github_id BIGINT`
+  - `created_at TIMESTAMPTZ NOT NULL`, `updated_at TIMESTAMPTZ NOT NULL`
+- Created `repository_contributors` table:
+  - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
+  - `repository_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE`
+  - `contributor_id BIGINT NOT NULL REFERENCES contributors(id) ON DELETE CASCADE`
+  - `total_commits INTEGER NOT NULL DEFAULT 0`
+  - `total_additions INTEGER NOT NULL DEFAULT 0`
+  - `total_deletions INTEGER NOT NULL DEFAULT 0`
+  - `total_changes INTEGER NOT NULL DEFAULT 0`
+  - `first_committed_at TIMESTAMPTZ NOT NULL`, `last_committed_at TIMESTAMPTZ NOT NULL`
+  - `created_at TIMESTAMPTZ NOT NULL`, `updated_at TIMESTAMPTZ NOT NULL`
+  - `CONSTRAINT uq_repo_contrib UNIQUE (repository_id, contributor_id)`
+  - Indexes: `idx_repo_contrib_repo_id`, `idx_repo_contrib_contrib_id`, `idx_repo_contrib_commits`.
 
 ---
 
@@ -225,9 +238,9 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - **Endpoint**: `GET /api/v1/repositories`
 - **Response**: `200 OK`
 
-### 5. Create an Analysis Job (Asynchronous Commit Ingestion)
+### 5. Create an Analysis Job (Asynchronous Ingestion & Attribution)
 - **Endpoint**: `POST /api/v1/repositories/{repositoryId}/analysis-jobs`
-- **Description**: Creates and persists an analysis job in `PENDING` state, publishes an event to Kafka, and initiates background commit history ingestion.
+- **Description**: Creates an analysis job in `PENDING` state, publishes an event to Kafka, and initiates background commit ingestion, file-change tracking, and contributor aggregation.
 - **Response**: `201 Created`
 
 ### 6. Get Analysis Job Status
@@ -237,6 +250,18 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 ### 7. Get Repository Analysis History
 - **Endpoint**: `GET /api/v1/repositories/{repositoryId}/analysis-jobs`
 - **Response**: `200 OK`
+
+### 8. List Repository Contributors (Paginated & Sorted)
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/contributors?page=0&size=20&sort=totalCommits,desc`
+- **Response**: `200 OK` (Spring Data `Page<RepositoryContributorResponse>`)
+
+### 9. Get Contributor Details
+- **Endpoint**: `GET /api/v1/contributors/{contributorId}`
+- **Response**: `200 OK` (or `404 Not Found`)
+
+### 10. Get Specific Repository Contributor Attribution
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/contributors/{contributorId}`
+- **Response**: `200 OK` (or `404 Not Found`)
 
 ---
 

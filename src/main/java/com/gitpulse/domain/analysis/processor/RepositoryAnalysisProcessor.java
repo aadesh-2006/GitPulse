@@ -5,6 +5,8 @@ import com.gitpulse.domain.analysis.AnalysisJobJpaRepository;
 import com.gitpulse.domain.analysis.AnalysisJobStatus;
 import com.gitpulse.domain.commit.CommitIngestionService;
 import com.gitpulse.domain.commit.dto.CommitIngestionResult;
+import com.gitpulse.domain.contributor.ContributorAggregationService;
+import com.gitpulse.domain.contributor.dto.ContributorAggregationResult;
 import com.gitpulse.domain.filechange.FileChangeIngestionService;
 import com.gitpulse.domain.filechange.dto.FileChangeIngestionResult;
 import org.slf4j.Logger;
@@ -21,13 +23,16 @@ public class RepositoryAnalysisProcessor {
     private final AnalysisJobJpaRepository analysisJobJpaRepository;
     private final CommitIngestionService commitIngestionService;
     private final FileChangeIngestionService fileChangeIngestionService;
+    private final ContributorAggregationService contributorAggregationService;
 
     public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository,
                                        CommitIngestionService commitIngestionService,
-                                       FileChangeIngestionService fileChangeIngestionService) {
+                                       FileChangeIngestionService fileChangeIngestionService,
+                                       ContributorAggregationService contributorAggregationService) {
         this.analysisJobJpaRepository = analysisJobJpaRepository;
         this.commitIngestionService = commitIngestionService;
         this.fileChangeIngestionService = fileChangeIngestionService;
+        this.contributorAggregationService = contributorAggregationService;
     }
 
     public void processJob(Long jobId) {
@@ -78,6 +83,14 @@ public class RepositoryAnalysisProcessor {
             log.info("Analysis job [id={}] file-change ingestion finished in {}ms: commitsProcessed={}, commitsSkipped={}, filesReceived={}, filesInserted={}, duplicates={}",
                     jobId, fileResult.getDurationMs(), fileResult.getCommitsProcessed(), fileResult.getCommitsSkipped(),
                     fileResult.getFilesReceived(), fileResult.getFilesInserted(), fileResult.getDuplicatesEncountered());
+
+            // Step 3: Materialized Contributor Activity Attribution Aggregation
+            ContributorAggregationResult contributorResult = contributorAggregationService.aggregateContributors(repositoryId, jobId);
+
+            log.info("Analysis job [id={}] contributor aggregation finished in {}ms: aggregated={}, created={}, attributionsCreated={}, attributionsUpdated={}",
+                    jobId, contributorResult.getDurationMs(), contributorResult.getContributorsAggregated(),
+                    contributorResult.getContributorsCreated(), contributorResult.getAttributionsCreated(),
+                    contributorResult.getAttributionsUpdated());
 
             // Transition state: RUNNING -> COMPLETED
             job.markCompleted();

@@ -54,6 +54,12 @@ class AnalysisJobKafkaIntegrationTest {
     @Autowired
     private FileChangeJpaRepository fileChangeJpaRepository;
 
+    @Autowired
+    private com.gitpulse.domain.contributor.ContributorJpaRepository contributorJpaRepository;
+
+    @Autowired
+    private com.gitpulse.domain.contributor.RepositoryContributorJpaRepository repositoryContributorJpaRepository;
+
     @MockBean
     private GitHubCommitClient gitHubCommitClient;
 
@@ -61,7 +67,7 @@ class AnalysisJobKafkaIntegrationTest {
     private GitHubCommitDetailsClient gitHubCommitDetailsClient;
 
     @Test
-    @DisplayName("End-to-End: AnalysisJob creation should publish Kafka event, ingest commits, ingest file changes, and transition job to COMPLETED")
+    @DisplayName("End-to-End: AnalysisJob creation should publish Kafka event, ingest commits, ingest file changes, aggregate contributors, and transition job to COMPLETED")
     void endToEndAnalysisJobProcessing() {
         Repository repo = repositoryJpaRepository.save(new Repository("apache", "flink", "Stateful computations over data streams", "master"));
 
@@ -111,7 +117,7 @@ class AnalysisJobKafkaIntegrationTest {
         assertThat(createdJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
         assertThat(createdJob.getRepositoryId()).isEqualTo(repo.getId());
 
-        // Await asynchronous processing by Kafka consumer, commit ingestion, and file-change ingestion
+        // Await asynchronous processing by Kafka consumer, commit ingestion, file-change ingestion, and contributor aggregation
         await()
                 .atMost(Duration.ofSeconds(15))
                 .pollInterval(Duration.ofMillis(200))
@@ -127,6 +133,13 @@ class AnalysisJobKafkaIntegrationTest {
                     assertThat(commitJpaRepository.existsByRepositoryIdAndGithubCommitSha(repo.getId(), sha)).isTrue();
 
                     assertThat(fileChangeJpaRepository.count()).isEqualTo(1);
+
+                    assertThat(contributorJpaRepository.count()).isEqualTo(1);
+                    assertThat(repositoryContributorJpaRepository.countByRepositoryId(repo.getId())).isEqualTo(1);
+                    var rc = repositoryContributorJpaRepository.findByRepositoryId(repo.getId()).get(0);
+                    assertThat(rc.getContributor().getEmail()).isEqualTo("dev@flink.apache.org");
+                    assertThat(rc.getTotalCommits()).isEqualTo(1);
+                    assertThat(rc.getTotalChanges()).isEqualTo(25);
                 });
     }
 }

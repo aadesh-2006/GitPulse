@@ -35,13 +35,21 @@ class RepositoryAnalysisProcessorTest {
     @Mock
     private com.gitpulse.domain.filechange.FileChangeIngestionService fileChangeIngestionService;
 
+    @Mock
+    private com.gitpulse.domain.contributor.ContributorAggregationService contributorAggregationService;
+
     private RepositoryAnalysisProcessor processor;
     private Repository sampleRepository;
     private AnalysisJob pendingJob;
 
     @BeforeEach
     void setUp() {
-        processor = new RepositoryAnalysisProcessor(analysisJobJpaRepository, commitIngestionService, fileChangeIngestionService);
+        processor = new RepositoryAnalysisProcessor(
+                analysisJobJpaRepository,
+                commitIngestionService,
+                fileChangeIngestionService,
+                contributorAggregationService
+        );
 
         sampleRepository = new Repository("spring-projects", "spring-boot");
         ReflectionTestUtils.setField(sampleRepository, "id", 1L);
@@ -51,7 +59,7 @@ class RepositoryAnalysisProcessorTest {
     }
 
     @Test
-    @DisplayName("Should successfully transition PENDING job to RUNNING, invoke commit and file-change ingestion, and transition to COMPLETED")
+    @DisplayName("Should successfully transition PENDING job to RUNNING, invoke all 3 stages, and transition to COMPLETED")
     void processJob_Success() {
         when(analysisJobJpaRepository.findWithRepositoryById(100L)).thenReturn(Optional.of(pendingJob));
         when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
@@ -59,6 +67,8 @@ class RepositoryAnalysisProcessorTest {
                 .thenReturn(new CommitIngestionResult(2, 50, 45, 5, 250));
         when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
                 .thenReturn(new com.gitpulse.domain.filechange.dto.FileChangeIngestionResult(45, 0, 120, 120, 0, 300));
+        when(contributorAggregationService.aggregateContributors(1L, 100L))
+                .thenReturn(new com.gitpulse.domain.contributor.dto.ContributorAggregationResult(5, 5, 5, 0, 50));
 
         processor.processJob(100L);
 
@@ -69,6 +79,7 @@ class RepositoryAnalysisProcessorTest {
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
         verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
+        verify(contributorAggregationService).aggregateContributors(1L, 100L);
         verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
     }
 
@@ -88,6 +99,7 @@ class RepositoryAnalysisProcessorTest {
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
         verify(fileChangeIngestionService, never()).ingestFileChanges(any(), any());
+        verify(contributorAggregationService, never()).aggregateContributors(any(), any());
         verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
     }
 
@@ -109,6 +121,31 @@ class RepositoryAnalysisProcessorTest {
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
         verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
+        verify(contributorAggregationService, never()).aggregateContributors(any(), any());
+        verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
+    }
+
+    @Test
+    @DisplayName("Should transition job to FAILED when contributor aggregation throws an exception")
+    void processJob_Failure_ContributorAggregationThrows_TransitionsToFailed() {
+        when(analysisJobJpaRepository.findWithRepositoryById(100L)).thenReturn(Optional.of(pendingJob));
+        when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
+        when(commitIngestionService.ingestCommits(1L, 100L))
+                .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 100));
+        when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
+                .thenReturn(new com.gitpulse.domain.filechange.dto.FileChangeIngestionResult(10, 0, 20, 20, 0, 100));
+        when(contributorAggregationService.aggregateContributors(1L, 100L))
+                .thenThrow(new RuntimeException("Database error during contributor aggregation"));
+
+        processor.processJob(100L);
+
+        assertThat(pendingJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(pendingJob.getErrorMessage()).isEqualTo("Database error during contributor aggregation");
+        assertThat(pendingJob.getCompletedAt()).isNotNull();
+
+        verify(commitIngestionService).ingestCommits(1L, 100L);
+        verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
+        verify(contributorAggregationService).aggregateContributors(1L, 100L);
         verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
     }
 
