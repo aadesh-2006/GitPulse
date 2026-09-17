@@ -2,7 +2,7 @@
 
 GitPulse is a GitHub Repository Activity Intelligence platform that analyzes repository history to understand code evolution, hotspots, contributor activity, and engineering-risk indicators.
 
-> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), and Contributor Domain & Activity Attribution (Step 7). Asynchronous commit history ingestion, commit-detail file-change tracking, and materialized contributor attribution aggregation are fully implemented; code hotspot scoring, risk analytics, and Redis caching belong to future milestones.
+> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), Contributor Domain & Activity Attribution (Step 7), and File-Level Activity & Churn Aggregation (Step 8). Asynchronous commit history ingestion, commit-detail file-change tracking, materialized contributor attributions, and repository file churn read models are fully implemented; code hotspot scoring, risk analytics, and Redis caching belong to future milestones.
 
 ---
 
@@ -12,7 +12,7 @@ GitPulse is a GitHub Repository Activity Intelligence platform that analyzes rep
 - **Framework**: Spring Boot 3.3.4 (Spring Web, Spring Data JPA, Spring Validation, Spring Boot Actuator, Spring Kafka)
 - **Event Streaming & Message Broker**: Apache Kafka (KRaft mode) via `spring-kafka`
 - **HTTP Client**: Spring 6 `RestClient` (Synchronous HTTP Client with configurable timeouts, rate-limit handling, Link header pagination, and commit-detail inspection)
-- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`, `V5`)
+- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`, `V5`, `V6`)
 - **Connection Pool**: HikariCP (with Hibernate JDBC Batching)
 - **Build Tool**: Maven (with Maven Wrapper `./mvnw`)
 - **Infrastructure**: Docker & Docker Compose (PostgreSQL 16 Alpine, Apache Kafka 3.8.0 KRaft)
@@ -71,6 +71,15 @@ com.gitpulse
 │   │   ├── ContributorService.java
 │   │   ├── ContributorAggregationService.java
 │   │   └── RepositoryContributorJpaRepository.java
+│   ├── file
+│   │   ├── dto
+│   │   │   ├── FilePrimaryContributorRow.java
+│   │   │   ├── RepositoryFileAggregationResult.java
+│   │   │   └── RepositoryFileAggregationRow.java
+│   │   ├── FilePathParser.java
+│   │   ├── RepositoryFile.java
+│   │   ├── RepositoryFileAggregationService.java
+│   │   └── RepositoryFileJpaRepository.java
 │   ├── filechange
 │   │   ├── dto
 │   │   │   └── FileChangeIngestionResult.java
@@ -124,15 +133,18 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
                                        RepositoryAnalysisProcessor
                                                     │
                                                     ▼ (RUNNING)
-                                           CommitIngestionService
+                                           CommitIngestionService (Stage 1)
                                                     │
                                                     ▼ (Persist Commits)
-                                         FileChangeIngestionService
+                                         FileChangeIngestionService (Stage 2)
                                                     │
                                                     ▼ (Persist File Changes)
-                                       ContributorAggregationService
+                                       ContributorAggregationService (Stage 3)
                                                     │
                                                     ▼ (Aggregate & Persist Contributors)
+                                      RepositoryFileAggregationService (Stage 4)
+                                                    │
+                                                    ▼ (Aggregate & Materialize File Churn)
                                        AnalysisJob (COMPLETED / FAILED)
 ```
 
@@ -156,8 +168,14 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - **Idempotent Re-analysis**: Re-running an analysis recalculates cumulative metrics from scratch and replaces existing `RepositoryContributor` stats rather than incrementing, preventing double-counting.
 - **Zero API Calls**: Contributor aggregation operates completely on database state without making additional GitHub API requests.
 
-### 4. Database Schema & Batch Persistence
-- `commits`, `file_changes`, and `repository_contributors` tables enforce composite unique constraints (`uq_commits_repo_sha`, `uq_file_changes_commit_file`, and `uq_repo_contrib`) guaranteeing storage-layer idempotency.
+### 4. File-Level Activity & Churn Aggregation
+- **Database Pushdown**: Native PostgreSQL aggregation groups across `file_changes` joined through `commits` to calculate total revisions, additions, deletions, total churn, and activity windows.
+- **Deterministic Deletion Tracking**: Evaluates the latest commit status for each file path (`is_deleted = true` if latest status is `REMOVED`).
+- **Primary Contributor Attribution**: Identifies the primary author per file based on total modification count with deterministic tie-breaking (latest timestamp, then contributor ID).
+- **Atomic Rebuild**: Runs in an atomic transaction per repository, updating existing files in place, purging stale rows, and applying JDBC batch persistence.
+
+### 5. Database Schema & Batch Persistence
+- `commits`, `file_changes`, `repository_contributors`, and `repository_files` tables enforce composite unique constraints (`uq_commits_repo_sha`, `uq_file_changes_commit_file`, `uq_repo_contrib`, and `uq_repo_files_repo_path`) guaranteeing storage-layer idempotency.
 - Persistence uses Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`) in discrete transactions per stage.
 
 ---
@@ -177,23 +195,22 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - Created `file_changes` table with `uq_file_changes_commit_file` and indexing on `commit_id` and `file_path`.
 
 ### Flyway V5: Contributors & Attributions Schema (`V5__create_contributors_and_attributions_tables.sql`)
-- Created `contributors` table:
-  - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
-  - `email VARCHAR(200) NOT NULL UNIQUE`
-  - `username VARCHAR(100)`, `name VARCHAR(200)`, `avatar_url VARCHAR(500)`, `github_id BIGINT`
-  - `created_at TIMESTAMPTZ NOT NULL`, `updated_at TIMESTAMPTZ NOT NULL`
-- Created `repository_contributors` table:
+- Created `contributors` and `repository_contributors` tables.
+
+### Flyway V6: Repository Files Schema (`V6__create_repository_files_table.sql`)
+- Created `repository_files` table:
   - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
   - `repository_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE`
-  - `contributor_id BIGINT NOT NULL REFERENCES contributors(id) ON DELETE CASCADE`
-  - `total_commits INTEGER NOT NULL DEFAULT 0`
-  - `total_additions INTEGER NOT NULL DEFAULT 0`
-  - `total_deletions INTEGER NOT NULL DEFAULT 0`
-  - `total_changes INTEGER NOT NULL DEFAULT 0`
-  - `first_committed_at TIMESTAMPTZ NOT NULL`, `last_committed_at TIMESTAMPTZ NOT NULL`
+  - `file_path VARCHAR(1000) NOT NULL`
+  - `file_name VARCHAR(255) NOT NULL`, `extension VARCHAR(50)`, `directory_path VARCHAR(1000)`
+  - `total_revisions INTEGER NOT NULL DEFAULT 0`, `total_additions INTEGER NOT NULL DEFAULT 0`
+  - `total_deletions INTEGER NOT NULL DEFAULT 0`, `total_churn INTEGER NOT NULL DEFAULT 0`
+  - `is_deleted BOOLEAN NOT NULL DEFAULT FALSE`
+  - `first_modified_at TIMESTAMPTZ NOT NULL`, `last_modified_at TIMESTAMPTZ NOT NULL`
+  - `primary_contributor_id BIGINT REFERENCES contributors(id) ON DELETE SET NULL`
   - `created_at TIMESTAMPTZ NOT NULL`, `updated_at TIMESTAMPTZ NOT NULL`
-  - `CONSTRAINT uq_repo_contrib UNIQUE (repository_id, contributor_id)`
-  - Indexes: `idx_repo_contrib_repo_id`, `idx_repo_contrib_contrib_id`, `idx_repo_contrib_commits`.
+  - `CONSTRAINT uq_repo_files_repo_path UNIQUE (repository_id, file_path)`
+  - Indexes on `repository_id`, `(repository_id, total_churn DESC)`, `(repository_id, total_revisions DESC)`, `(repository_id, last_modified_at DESC)`, `(repository_id, extension)`, and `(repository_id, is_deleted)`.
 
 ---
 
@@ -240,7 +257,7 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 
 ### 5. Create an Analysis Job (Asynchronous Ingestion & Attribution)
 - **Endpoint**: `POST /api/v1/repositories/{repositoryId}/analysis-jobs`
-- **Description**: Creates an analysis job in `PENDING` state, publishes an event to Kafka, and initiates background commit ingestion, file-change tracking, and contributor aggregation.
+- **Description**: Creates an analysis job in `PENDING` state, publishes an event to Kafka, and initiates background commit ingestion, file-change tracking, contributor aggregation, and file churn materialization.
 - **Response**: `201 Created`
 
 ### 6. Get Analysis Job Status

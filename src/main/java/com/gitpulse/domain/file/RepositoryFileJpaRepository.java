@@ -4,6 +4,7 @@ import com.gitpulse.domain.file.dto.FilePrimaryContributorRow;
 import com.gitpulse.domain.file.dto.RepositoryFileAggregationRow;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,10 +16,13 @@ import java.util.Optional;
 @Repository
 public interface RepositoryFileJpaRepository extends JpaRepository<RepositoryFile, Long> {
 
+    @EntityGraph(attributePaths = {"primaryContributor"})
     Optional<RepositoryFile> findByRepositoryIdAndFilePath(Long repositoryId, String filePath);
 
+    @EntityGraph(attributePaths = {"primaryContributor"})
     List<RepositoryFile> findByRepositoryId(Long repositoryId);
 
+    @EntityGraph(attributePaths = {"primaryContributor"})
     Page<RepositoryFile> findByRepositoryId(Long repositoryId, Pageable pageable);
 
     @Query(value = """

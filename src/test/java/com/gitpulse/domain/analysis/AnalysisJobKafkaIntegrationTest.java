@@ -2,14 +2,17 @@ package com.gitpulse.domain.analysis;
 
 import com.gitpulse.domain.analysis.dto.AnalysisJobResponse;
 import com.gitpulse.domain.commit.CommitJpaRepository;
+import com.gitpulse.domain.contributor.ContributorJpaRepository;
+import com.gitpulse.domain.contributor.RepositoryContributorJpaRepository;
+import com.gitpulse.domain.file.RepositoryFileJpaRepository;
+import com.gitpulse.domain.filechange.FileChangeJpaRepository;
 import com.gitpulse.domain.repository.Repository;
 import com.gitpulse.domain.repository.RepositoryJpaRepository;
 import com.gitpulse.integration.github.client.GitHubCommitClient;
-import com.gitpulse.integration.github.dto.GitHubCommitPageResponse;
-import com.gitpulse.integration.github.dto.GitHubCommitResponse;
-import com.gitpulse.domain.filechange.FileChangeJpaRepository;
 import com.gitpulse.integration.github.client.GitHubCommitDetailsClient;
 import com.gitpulse.integration.github.dto.GitHubCommitDetailResponse;
+import com.gitpulse.integration.github.dto.GitHubCommitPageResponse;
+import com.gitpulse.integration.github.dto.GitHubCommitResponse;
 import com.gitpulse.integration.github.dto.GitHubFileResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,10 +58,13 @@ class AnalysisJobKafkaIntegrationTest {
     private FileChangeJpaRepository fileChangeJpaRepository;
 
     @Autowired
-    private com.gitpulse.domain.contributor.ContributorJpaRepository contributorJpaRepository;
+    private ContributorJpaRepository contributorJpaRepository;
 
     @Autowired
-    private com.gitpulse.domain.contributor.RepositoryContributorJpaRepository repositoryContributorJpaRepository;
+    private RepositoryContributorJpaRepository repositoryContributorJpaRepository;
+
+    @Autowired
+    private RepositoryFileJpaRepository repositoryFileJpaRepository;
 
     @MockBean
     private GitHubCommitClient gitHubCommitClient;
@@ -67,7 +73,7 @@ class AnalysisJobKafkaIntegrationTest {
     private GitHubCommitDetailsClient gitHubCommitDetailsClient;
 
     @Test
-    @DisplayName("End-to-End: AnalysisJob creation should publish Kafka event, ingest commits, ingest file changes, aggregate contributors, and transition job to COMPLETED")
+    @DisplayName("End-to-End: AnalysisJob creation should publish Kafka event, ingest commits, ingest file changes, aggregate contributors, aggregate files, and transition job to COMPLETED")
     void endToEndAnalysisJobProcessing() {
         Repository repo = repositoryJpaRepository.save(new Repository("apache", "flink", "Stateful computations over data streams", "master"));
 
@@ -117,7 +123,7 @@ class AnalysisJobKafkaIntegrationTest {
         assertThat(createdJob.getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
         assertThat(createdJob.getRepositoryId()).isEqualTo(repo.getId());
 
-        // Await asynchronous processing by Kafka consumer, commit ingestion, file-change ingestion, and contributor aggregation
+        // Await asynchronous processing by Kafka consumer: commit ingestion -> file-change ingestion -> contributor aggregation -> file aggregation
         await()
                 .atMost(Duration.ofSeconds(15))
                 .pollInterval(Duration.ofMillis(200))
@@ -129,17 +135,36 @@ class AnalysisJobKafkaIntegrationTest {
                     assertThat(job.getCompletedAt()).isNotNull();
                     assertThat(job.getErrorMessage()).isNull();
 
+                    // 1. Commits verified
                     assertThat(commitJpaRepository.countByRepositoryId(repo.getId())).isEqualTo(1);
                     assertThat(commitJpaRepository.existsByRepositoryIdAndGithubCommitSha(repo.getId(), sha)).isTrue();
 
+                    // 2. File changes verified
                     assertThat(fileChangeJpaRepository.count()).isEqualTo(1);
 
+                    // 3. Contributor attribution verified
                     assertThat(contributorJpaRepository.count()).isEqualTo(1);
                     assertThat(repositoryContributorJpaRepository.countByRepositoryId(repo.getId())).isEqualTo(1);
                     var rc = repositoryContributorJpaRepository.findByRepositoryId(repo.getId()).get(0);
                     assertThat(rc.getContributor().getEmail()).isEqualTo("dev@flink.apache.org");
                     assertThat(rc.getTotalCommits()).isEqualTo(1);
                     assertThat(rc.getTotalChanges()).isEqualTo(25);
+
+                    // 4. Materialized repository file verified
+                    var repoFiles = repositoryFileJpaRepository.findByRepositoryId(repo.getId());
+                    assertThat(repoFiles).hasSize(1);
+                    var rf = repoFiles.get(0);
+                    assertThat(rf.getFilePath()).isEqualTo("flink-core/src/main/java/FlinkApp.java");
+                    assertThat(rf.getFileName()).isEqualTo("FlinkApp.java");
+                    assertThat(rf.getExtension()).isEqualTo("java");
+                    assertThat(rf.getDirectoryPath()).isEqualTo("flink-core/src/main/java");
+                    assertThat(rf.getTotalRevisions()).isEqualTo(1);
+                    assertThat(rf.getTotalAdditions()).isEqualTo(25);
+                    assertThat(rf.getTotalDeletions()).isEqualTo(0);
+                    assertThat(rf.getTotalChurn()).isEqualTo(25);
+                    assertThat(rf.isDeleted()).isFalse();
+                    assertThat(rf.getPrimaryContributor()).isNotNull();
+                    assertThat(rf.getPrimaryContributor().getEmail()).isEqualTo("dev@flink.apache.org");
                 });
     }
 }
