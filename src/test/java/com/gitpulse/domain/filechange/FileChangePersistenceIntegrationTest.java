@@ -142,4 +142,20 @@ class FileChangePersistenceIntegrationTest {
         assertThat(fileChangeJpaRepository.count()).isEqualTo(0);
         assertThat(commitJpaRepository.count()).isEqualTo(0);
     }
+
+    @Test
+    @DisplayName("findByCommitIdOrderByFilePathAsc should return file changes ordered by filePath ascending")
+    void findByCommitIdOrderByFilePathAsc() {
+        FileChange fcZ = new FileChange(commit1, "z_file.txt", FileChangeStatus.ADDED, 1, 0, 1, null, null);
+        FileChange fcA = new FileChange(commit1, "a_file.txt", FileChangeStatus.MODIFIED, 2, 0, 2, null, null);
+        FileChange fcM = new FileChange(commit1, "m_file.txt", FileChangeStatus.REMOVED, 0, 1, 1, null, null);
+        fileChangeJpaRepository.saveAllAndFlush(List.of(fcZ, fcA, fcM));
+
+        List<FileChange> results = fileChangeJpaRepository.findByCommitIdOrderByFilePathAsc(commit1.getId());
+
+        assertThat(results).hasSize(3);
+        assertThat(results.get(0).getFilePath()).isEqualTo("a_file.txt");
+        assertThat(results.get(1).getFilePath()).isEqualTo("m_file.txt");
+        assertThat(results.get(2).getFilePath()).isEqualTo("z_file.txt");
+    }
 }

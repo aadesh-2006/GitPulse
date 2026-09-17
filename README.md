@@ -2,7 +2,7 @@
 
 GitPulse is a GitHub Repository Activity Intelligence platform that analyzes repository history to understand code evolution, hotspots, contributor activity, and engineering-risk indicators.
 
-> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), Contributor Domain & Activity Attribution (Step 7), and File-Level Activity & Churn Aggregation (Step 8). Asynchronous commit history ingestion, commit-detail file-change tracking, materialized contributor attributions, repository file churn read models, and REST query endpoints are fully implemented; code risk scoring and Redis caching belong to future milestones.
+> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), Contributor Domain & Activity Attribution (Step 7), File-Level Activity & Churn Aggregation (Step 8), and Deterministic Commit Classification & Intelligence (Step 9). Asynchronous commit history ingestion, deterministic commit classification, commit-detail file-change tracking, materialized contributor attributions, repository file churn read models, and REST query endpoints are fully implemented; code risk scoring and Redis caching belong to future milestones.
 
 ---
 
@@ -12,7 +12,7 @@ GitPulse is a GitHub Repository Activity Intelligence platform that analyzes rep
 - **Framework**: Spring Boot 3.3.4 (Spring Web, Spring Data JPA, Spring Validation, Spring Boot Actuator, Spring Kafka)
 - **Event Streaming & Message Broker**: Apache Kafka (KRaft mode) via `spring-kafka`
 - **HTTP Client**: Spring 6 `RestClient` (Synchronous HTTP Client with configurable timeouts, rate-limit handling, Link header pagination, and commit-detail inspection)
-- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`, `V5`, `V6`)
+- **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`, `V5`, `V6`, `V7`)
 - **Connection Pool**: HikariCP (with Hibernate JDBC Batching)
 - **Build Tool**: Maven (with Maven Wrapper `./mvnw`)
 - **Infrastructure**: Docker & Docker Compose (PostgreSQL 16 Alpine, Apache Kafka 3.8.0 KRaft)
@@ -55,10 +55,21 @@ com.gitpulse
 │   ├── analytics
 │   ├── commit
 │   │   ├── dto
-│   │   │   └── CommitIngestionResult.java
+│   │   │   ├── CommitClassificationResult.java
+│   │   │   ├── CommitDetailResponse.java
+│   │   │   ├── CommitFileChangeResponse.java
+│   │   │   ├── CommitIngestionResult.java
+│   │   │   └── CommitResponse.java
 │   │   ├── Commit.java
+│   │   ├── CommitClassification.java
+│   │   ├── CommitClassificationPipelineService.java
+│   │   ├── CommitClassificationService.java
+│   │   ├── CommitController.java
 │   │   ├── CommitJpaRepository.java
+│   │   ├── CommitQueryService.java
+│   │   ├── CommitSortValidator.java
 │   │   └── CommitIngestionService.java
+
 │   ├── contributor
 │   │   ├── dto
 │   │   │   ├── ContributorAggregationResult.java
@@ -140,14 +151,17 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
                                                     ▼ (RUNNING)
                                            CommitIngestionService (Stage 1)
                                                     │
-                                                    ▼ (Persist Commits)
-                                         FileChangeIngestionService (Stage 2)
+                                                    ▼ (Ingest Commits)
+                                      CommitClassificationPipelineService (Stage 2)
+                                                    │
+                                                    ▼ (Classify Commits Deterministically)
+                                         FileChangeIngestionService (Stage 3)
                                                     │
                                                     ▼ (Persist File Changes)
-                                       ContributorAggregationService (Stage 3)
+                                       ContributorAggregationService (Stage 4)
                                                     │
                                                     ▼ (Aggregate & Persist Contributors)
-                                      RepositoryFileAggregationService (Stage 4)
+                                      RepositoryFileAggregationService (Stage 5)
                                                     │
                                                     ▼ (Aggregate & Materialize File Churn)
                                        AnalysisJob (COMPLETED / FAILED)
@@ -173,19 +187,10 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - Created `contributors` and `repository_contributors` tables.
 
 ### Flyway V6: Repository Files Schema (`V6__create_repository_files_table.sql`)
-- Created `repository_files` table:
-  - `id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY`
-  - `repository_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE`
-  - `file_path VARCHAR(1000) NOT NULL`
-  - `file_name VARCHAR(255) NOT NULL`, `extension VARCHAR(50)`, `directory_path VARCHAR(1000)`
-  - `total_revisions INTEGER NOT NULL DEFAULT 0`, `total_additions INTEGER NOT NULL DEFAULT 0`
-  - `total_deletions INTEGER NOT NULL DEFAULT 0`, `total_churn INTEGER NOT NULL DEFAULT 0`
-  - `is_deleted BOOLEAN NOT NULL DEFAULT FALSE`
-  - `first_modified_at TIMESTAMPTZ NOT NULL`, `last_modified_at TIMESTAMPTZ NOT NULL`
-  - `primary_contributor_id BIGINT REFERENCES contributors(id) ON DELETE SET NULL`
-  - `created_at TIMESTAMPTZ NOT NULL`, `updated_at TIMESTAMPTZ NOT NULL`
-  - `CONSTRAINT uq_repo_files_repo_path UNIQUE (repository_id, file_path)`
-  - Indexes on `repository_id`, `(repository_id, total_churn DESC)`, `(repository_id, total_revisions DESC)`, `(repository_id, last_modified_at DESC)`, `(repository_id, extension)`, and `(repository_id, is_deleted)`.
+- Created `repository_files` table with churn metrics and primary contributor attributions.
+
+### Flyway V7: Commit Classification (`V7__add_commit_classification.sql`)
+- Added `classification VARCHAR(50)` column to `commits` table with composite indexing on `(repository_id, classification)`.
 
 ---
 
@@ -232,7 +237,7 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 
 ### 5. Create an Analysis Job (Asynchronous Ingestion & Attribution)
 - **Endpoint**: `POST /api/v1/repositories/{repositoryId}/analysis-jobs`
-- **Description**: Creates an analysis job in `PENDING` state, publishes an event to Kafka, and initiates background commit ingestion, file-change tracking, contributor aggregation, and file churn materialization.
+- **Description**: Creates an analysis job in `PENDING` state, publishes an event to Kafka, and initiates background commit ingestion, deterministic commit classification, file-change tracking, contributor aggregation, and file churn materialization.
 - **Response**: `201 Created`
 
 ### 6. Get Analysis Job Status
@@ -272,6 +277,26 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - **Endpoint**: `GET /api/v1/repositories/{repositoryId}/files/{*filePath}`
 - **Example**: `GET /api/v1/repositories/1/files/src/main/java/com/gitpulse/GitPulseApplication.java`
 - **Response**: `200 OK` (`RepositoryFileResponse` with primary contributor details) or `404 Not Found`
+
+### 14. List Repository Commits (Paginated, Sorted & Filtered)
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/commits`
+- **Supported Query Parameters**:
+  - `page` (default `0`)
+  - `size` (default `20`)
+  - `sort` (default `committedAt,desc`)
+  - `classification` (optional `CommitClassification`: `FEATURE`, `BUG_FIX`, `REFACTOR`, `DOCUMENTATION`, `TEST`, `BUILD`, `CONFIGURATION`, `DEPENDENCY`, `OTHER`)
+  - `authorEmail` (optional `String`, case-insensitive match)
+  - `from` (optional `ISO-8601 Instant`, e.g. `2026-09-01T00:00:00Z`)
+  - `to` (optional `ISO-8601 Instant`, e.g. `2026-09-15T23:59:59Z`)
+- **Allowed Sort Fields**: `committedAt`, `additions`, `deletions`, `totalChanges`, `githubCommitSha`, `id`
+- **Default Sort**: `committedAt,desc`
+- **Response**: `200 OK` (Spring Data `Page<CommitResponse>`)
+
+### 15. Get Commit Intelligence Detail
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/commits/{commitId}`
+- **Example**: `GET /api/v1/repositories/1/commits/42`
+- **Response**: `200 OK` (`CommitDetailResponse` with commit metadata and associated `List<CommitFileChangeResponse>`) or `404 Not Found`
+
 
 ---
 

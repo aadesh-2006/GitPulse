@@ -201,4 +201,56 @@ class CommitPersistenceIntegrationTest {
         Commit updated = commitJpaRepository.findById(saved.getId()).orElseThrow();
         assertThat(updated.getClassification()).isEqualTo(CommitClassification.FEATURE);
     }
+
+    @Test
+    @DisplayName("findByIdAndRepositoryId should strictly enforce repository isolation")
+    void findByIdAndRepositoryId() {
+        Commit commit1 = commitJpaRepository.saveAndFlush(new Commit(
+                repo1, "sha_repo1_iso", "Msg 1", "A", "a@test.com", "a", Instant.now(), null, null, null, null
+        ));
+
+        assertThat(commitJpaRepository.findByIdAndRepositoryId(commit1.getId(), repo1.getId())).isPresent();
+        assertThat(commitJpaRepository.findByIdAndRepositoryId(commit1.getId(), repo2.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByRepositoryIdWithFilters should filter by classification, authorEmail, date range and repository")
+    void findByRepositoryIdWithFilters() {
+        Instant t1 = Instant.parse("2026-09-01T10:00:00Z");
+        Instant t2 = Instant.parse("2026-09-02T10:00:00Z");
+        Instant t3 = Instant.parse("2026-09-03T10:00:00Z");
+
+        Commit c1 = new Commit(repo1, "sha_f1", "feat: 1", "Alice", "alice@example.com", "alice", t1, 10, 0, 10, null, CommitClassification.FEATURE);
+        Commit c2 = new Commit(repo1, "sha_f2", "fix: 2", "Alice", "ALICE@example.com", "alice", t2, 5, 2, 7, null, CommitClassification.BUG_FIX);
+        Commit c3 = new Commit(repo1, "sha_f3", "refactor: 3", "Bob", "bob@example.com", "bob", t3, 20, 5, 25, null, CommitClassification.REFACTOR);
+        Commit cRepo2 = new Commit(repo2, "sha_f4", "feat: other repo", "Alice", "alice@example.com", "alice", t1, 10, 0, 10, null, CommitClassification.FEATURE);
+        commitJpaRepository.saveAllAndFlush(List.of(c1, c2, c3, cRepo2));
+
+        // 1. No filters (all for repo1)
+        Page<Commit> allRepo1 = commitJpaRepository.findByRepositoryIdWithFilters(repo1.getId(), null, null, null, null, PageRequest.of(0, 10));
+        assertThat(allRepo1.getTotalElements()).isEqualTo(3);
+
+        // 2. Filter by classification
+        Page<Commit> feats = commitJpaRepository.findByRepositoryIdWithFilters(repo1.getId(), CommitClassification.FEATURE, null, null, null, PageRequest.of(0, 10));
+        assertThat(feats.getTotalElements()).isEqualTo(1);
+        assertThat(feats.getContent().get(0).getGithubCommitSha()).isEqualTo("sha_f1");
+
+        // 3. Filter by authorEmail (case-insensitive)
+        Page<Commit> aliceCommits = commitJpaRepository.findByRepositoryIdWithFilters(repo1.getId(), null, "alice@example.com", null, null, PageRequest.of(0, 10));
+        assertThat(aliceCommits.getTotalElements()).isEqualTo(2);
+
+        // 4. Filter by date range (from / to)
+        Page<Commit> midRange = commitJpaRepository.findByRepositoryIdWithFilters(
+                repo1.getId(), null, null, Instant.parse("2026-09-01T12:00:00Z"), Instant.parse("2026-09-02T12:00:00Z"), PageRequest.of(0, 10)
+        );
+        assertThat(midRange.getTotalElements()).isEqualTo(1);
+        assertThat(midRange.getContent().get(0).getGithubCommitSha()).isEqualTo("sha_f2");
+
+        // 5. Combined filter
+        Page<Commit> combined = commitJpaRepository.findByRepositoryIdWithFilters(
+                repo1.getId(), CommitClassification.BUG_FIX, "alice@example.com", t1, t3, PageRequest.of(0, 10)
+        );
+        assertThat(combined.getTotalElements()).isEqualTo(1);
+        assertThat(combined.getContent().get(0).getGithubCommitSha()).isEqualTo("sha_f2");
+    }
 }

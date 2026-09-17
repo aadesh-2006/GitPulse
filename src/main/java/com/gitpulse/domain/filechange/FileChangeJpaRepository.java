@@ -23,4 +23,6 @@ public interface FileChangeJpaRepository extends JpaRepository<FileChange, Long>
     long countByCommitId(Long commitId);
 
     List<FileChange> findByCommitId(Long commitId);
+
+    List<FileChange> findByCommitIdOrderByFilePathAsc(Long commitId);
 }
