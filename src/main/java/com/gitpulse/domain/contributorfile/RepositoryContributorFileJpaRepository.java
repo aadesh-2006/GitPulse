@@ -19,13 +19,22 @@ public interface RepositoryContributorFileJpaRepository extends JpaRepository<Re
     List<RepositoryContributorFile> findByRepositoryId(Long repositoryId);
 
     @EntityGraph(attributePaths = {"contributor"})
+    Page<RepositoryContributorFile> findByRepositoryId(Long repositoryId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"contributor"})
     Optional<RepositoryContributorFile> findByRepositoryIdAndContributorIdAndFilePath(Long repositoryId, Long contributorId, String filePath);
 
     @EntityGraph(attributePaths = {"contributor"})
     List<RepositoryContributorFile> findByRepositoryIdAndContributorId(Long repositoryId, Long contributorId);
 
     @EntityGraph(attributePaths = {"contributor"})
+    Page<RepositoryContributorFile> findByRepositoryIdAndContributorId(Long repositoryId, Long contributorId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"contributor"})
     List<RepositoryContributorFile> findByRepositoryIdAndFilePath(Long repositoryId, String filePath);
+
+    @EntityGraph(attributePaths = {"contributor"})
+    Page<RepositoryContributorFile> findByRepositoryIdAndFilePath(Long repositoryId, String filePath, Pageable pageable);
 
     void deleteByRepositoryId(Long repositoryId);
 
