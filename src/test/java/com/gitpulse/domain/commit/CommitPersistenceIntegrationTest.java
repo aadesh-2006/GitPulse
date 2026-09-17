@@ -123,4 +123,82 @@ class CommitPersistenceIntegrationTest {
         assertThat(page.getContent().get(0).getGithubCommitSha()).isEqualTo("sha_new");
         assertThat(page.getContent().get(1).getGithubCommitSha()).isEqualTo("sha_mid");
     }
+
+    @Test
+    @DisplayName("Should persist and read back a commit with null classification")
+    void persistCommitWithNullClassification() {
+        Commit commit = new Commit(
+                repo1,
+                "sha_null_classification_1234567890123456",
+                "docs: update readme",
+                "Alice",
+                "alice@example.com",
+                "alice",
+                Instant.now(),
+                5,
+                1,
+                6,
+                "https://github.com/owner1/repo1/commit/sha_null",
+                null
+        );
+
+        Commit saved = commitJpaRepository.saveAndFlush(commit);
+        Commit found = commitJpaRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getClassification()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should persist and read back each CommitClassification enum value correctly")
+    void persistAndReadBackEachClassificationEnumValue() {
+        int index = 0;
+        for (CommitClassification classification : CommitClassification.values()) {
+            String sha = String.format("sha_class_%02d_123456789012345678901234567", index++);
+            Commit commit = new Commit(
+                    repo1,
+                    sha,
+                    "Commit for " + classification.name(),
+                    "Alice",
+                    "alice@example.com",
+                    "alice",
+                    Instant.now(),
+                    10,
+                    5,
+                    15,
+                    "https://github.com/owner1/repo1/commit/" + sha,
+                    classification
+            );
+
+            Commit saved = commitJpaRepository.saveAndFlush(commit);
+            Commit found = commitJpaRepository.findById(saved.getId()).orElseThrow();
+
+            assertThat(found.getClassification()).isEqualTo(classification);
+        }
+    }
+
+    @Test
+    @DisplayName("Should update classification on an existing commit")
+    void updateClassification() {
+        Commit commit = new Commit(
+                repo1,
+                "sha_to_update_12345678901234567890123456",
+                "feat: new feature",
+                "Alice",
+                "alice@example.com",
+                "alice",
+                Instant.now(),
+                20,
+                0,
+                20,
+                "https://github.com/owner1/repo1/commit/sha_to_update"
+        );
+        Commit saved = commitJpaRepository.saveAndFlush(commit);
+        assertThat(saved.getClassification()).isNull();
+
+        saved.setClassification(CommitClassification.FEATURE);
+        commitJpaRepository.saveAndFlush(saved);
+
+        Commit updated = commitJpaRepository.findById(saved.getId()).orElseThrow();
+        assertThat(updated.getClassification()).isEqualTo(CommitClassification.FEATURE);
+    }
 }

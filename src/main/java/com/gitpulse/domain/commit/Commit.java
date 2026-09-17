@@ -3,6 +3,8 @@ package com.gitpulse.domain.commit;
 import com.gitpulse.domain.repository.Repository;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -66,6 +68,10 @@ public class Commit {
     @Column(name = "html_url", length = 300)
     private String htmlUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "classification", length = 50)
+    private CommitClassification classification;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -95,6 +101,23 @@ public class Commit {
         this.deletions = deletions;
         this.totalChanges = totalChanges;
         this.htmlUrl = htmlUrl;
+    }
+
+    public Commit(Repository repository,
+                  String githubCommitSha,
+                  String message,
+                  String authorName,
+                  String authorEmail,
+                  String authorUsername,
+                  Instant committedAt,
+                  Integer additions,
+                  Integer deletions,
+                  Integer totalChanges,
+                  String htmlUrl,
+                  CommitClassification classification) {
+        this(repository, githubCommitSha, message, authorName, authorEmail, authorUsername,
+                committedAt, additions, deletions, totalChanges, htmlUrl);
+        this.classification = classification;
     }
 
     @PrePersist
@@ -194,6 +217,14 @@ public class Commit {
 
     public void setHtmlUrl(String htmlUrl) {
         this.htmlUrl = htmlUrl;
+    }
+
+    public CommitClassification getClassification() {
+        return classification;
+    }
+
+    public void setClassification(CommitClassification classification) {
+        this.classification = classification;
     }
 
     public Instant getCreatedAt() {
