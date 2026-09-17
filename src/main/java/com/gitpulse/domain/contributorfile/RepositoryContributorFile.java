@@ -105,6 +105,20 @@ public class RepositoryContributorFile {
         this.updatedAt = Instant.now();
     }
 
+    public boolean hasMetricsChanged(long totalRevisions,
+                                     long totalAdditions,
+                                     long totalDeletions,
+                                     long totalChurn,
+                                     Instant firstContributedAt,
+                                     Instant lastContributedAt) {
+        return this.totalRevisions != totalRevisions
+                || this.totalAdditions != totalAdditions
+                || this.totalDeletions != totalDeletions
+                || this.totalChurn != totalChurn
+                || !Objects.equals(this.firstContributedAt, firstContributedAt)
+                || !Objects.equals(this.lastContributedAt, lastContributedAt);
+    }
+
     public void updateMetrics(long totalRevisions,
                               long totalAdditions,
                               long totalDeletions,
@@ -125,6 +139,7 @@ public class RepositoryContributorFile {
     }
 
     public Long getId() {
+
         return id;
     }
 
