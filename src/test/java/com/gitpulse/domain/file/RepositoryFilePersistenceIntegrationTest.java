@@ -22,6 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Instant;
@@ -445,5 +446,35 @@ class RepositoryFilePersistenceIntegrationTest {
         assertThat(result.updatedCount()).isEqualTo(0);
         assertThat(result.deletedCount()).isEqualTo(0);
         assertThat(repositoryFileJpaRepository.findByRepositoryId(repo1.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should query repository files with filters and sorting")
+    void findByRepositoryIdWithFilters() {
+        Instant now = Instant.now();
+        repositoryFileJpaRepository.saveAndFlush(new RepositoryFile(repo1, "src/App.java", "App.java", "java", "src", 10, 100, 10, 110, false, now, now, null));
+        repositoryFileJpaRepository.saveAndFlush(new RepositoryFile(repo1, "src/Util.java", "Util.java", "java", "src", 20, 200, 20, 220, false, now, now, null));
+        repositoryFileJpaRepository.saveAndFlush(new RepositoryFile(repo1, "README.md", "README.md", "md", null, 5, 50, 0, 50, false, now, now, null));
+        repositoryFileJpaRepository.saveAndFlush(new RepositoryFile(repo1, "old/Deleted.java", "Deleted.java", "java", "old", 2, 10, 10, 20, true, now, now, null));
+
+        // Filter by extension = java
+        Page<RepositoryFile> javaFiles = repositoryFileJpaRepository.findByRepositoryIdWithFilters(
+                repo1.getId(), "java", null, PageRequest.of(0, 10, Sort.by("totalChurn").descending())
+        );
+        assertThat(javaFiles.getTotalElements()).isEqualTo(3);
+        assertThat(javaFiles.getContent().get(0).getFilePath()).isEqualTo("src/Util.java");
+        assertThat(javaFiles.getContent().get(1).getFilePath()).isEqualTo("src/App.java");
+
+        // Filter by isDeleted = false
+        Page<RepositoryFile> activeFiles = repositoryFileJpaRepository.findByRepositoryIdWithFilters(
+                repo1.getId(), null, false, PageRequest.of(0, 10, Sort.by("totalChurn").descending())
+        );
+        assertThat(activeFiles.getTotalElements()).isEqualTo(3);
+
+        // Filter by extension = java AND isDeleted = false
+        Page<RepositoryFile> activeJava = repositoryFileJpaRepository.findByRepositoryIdWithFilters(
+                repo1.getId(), "java", false, PageRequest.of(0, 10, Sort.by("totalChurn").descending())
+        );
+        assertThat(activeJava.getTotalElements()).isEqualTo(2);
     }
 }

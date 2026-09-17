@@ -2,7 +2,7 @@
 
 GitPulse is a GitHub Repository Activity Intelligence platform that analyzes repository history to understand code evolution, hotspots, contributor activity, and engineering-risk indicators.
 
-> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), Contributor Domain & Activity Attribution (Step 7), and File-Level Activity & Churn Aggregation (Step 8). Asynchronous commit history ingestion, commit-detail file-change tracking, materialized contributor attributions, and repository file churn read models are fully implemented; code hotspot scoring, risk analytics, and Redis caching belong to future milestones.
+> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), Contributor Domain & Activity Attribution (Step 7), and File-Level Activity & Churn Aggregation (Step 8). Asynchronous commit history ingestion, commit-detail file-change tracking, materialized contributor attributions, repository file churn read models, and REST query endpoints are fully implemented; code risk scoring and Redis caching belong to future milestones.
 
 ---
 
@@ -74,12 +74,17 @@ com.gitpulse
 │   ├── file
 │   │   ├── dto
 │   │   │   ├── FilePrimaryContributorRow.java
+│   │   │   ├── PrimaryContributorSummaryResponse.java
 │   │   │   ├── RepositoryFileAggregationResult.java
-│   │   │   └── RepositoryFileAggregationRow.java
+│   │   │   ├── RepositoryFileAggregationRow.java
+│   │   │   └── RepositoryFileResponse.java
 │   │   ├── FilePathParser.java
 │   │   ├── RepositoryFile.java
 │   │   ├── RepositoryFileAggregationService.java
-│   │   └── RepositoryFileJpaRepository.java
+│   │   ├── RepositoryFileController.java
+│   │   ├── RepositoryFileJpaRepository.java
+│   │   ├── RepositoryFileQueryService.java
+│   │   └── RepositoryFileSortValidator.java
 │   ├── filechange
 │   │   ├── dto
 │   │   │   └── FileChangeIngestionResult.java
@@ -147,36 +152,6 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
                                                     ▼ (Aggregate & Materialize File Churn)
                                        AnalysisJob (COMPLETED / FAILED)
 ```
-
-### 1. Commit Ingestion & Link Header Pagination
-- Commits are fetched in discrete pages using `GET /repos/{owner}/{repo}/commits?page={page}&per_page={pageSize}` starting at `page=1`.
-- Pagination is driven solely by the presence of `rel="next"` in the RFC 5988 `Link` response header.
-- For each page received, existing commit SHAs are identified via `findExistingGithubCommitShas` and only new commits are persisted.
-
-### 2. File-Change Ingestion & Detail Inspection
-- For persisted commits, file metadata is fetched via `GET /repos/{owner}/{repo}/commits/{sha}` using `GitHubCommitDetailsClient`.
-- Commits are processed in memory-safe chunks (50 commits per page).
-- **N+1 DB Query Prevention**: Before calling GitHub, a single batch query `findCommitIdsWithFileChanges(commitIds)` identifies which commits already have file changes persisted, skipping redundant API requests.
-- **Normalization & Mapping**: GitHub file entries are normalized into `FileChange` entities with statuses (`ADDED`, `MODIFIED`, `REMOVED`, `RENAMED`, `UNKNOWN`). For renamed files, the target `filename` is stored as `file_path`.
-- **Intra-Commit Deduplication**: Duplicate file paths returned within the same commit detail response are deduplicated in memory.
-- **Commit Stats Enrichment**: `additions`, `deletions`, and `total_changes` on the parent `Commit` entity are populated if they were null during list ingestion.
-
-### 3. Contributor Attribution & Materialized Aggregation
-- **Database-Driven Aggregation**: PostgreSQL performs heavy GROUP BY aggregations across the `commits` table in a single query. Thousands of `Commit` entities are never loaded into application memory.
-- **Attribution Key Semantics**: `author_email` is used as the current attribution key. Email is treated strictly as an attribution identifier rather than a guaranteed unique biological human identity. Different email addresses used by the same person are tracked as distinct contributor attribution identities.
-- **Deterministic Name/Username Resolution**: Contributor profiles adopt the most recent non-null author name and username associated with that email.
-- **Idempotent Re-analysis**: Re-running an analysis recalculates cumulative metrics from scratch and replaces existing `RepositoryContributor` stats rather than incrementing, preventing double-counting.
-- **Zero API Calls**: Contributor aggregation operates completely on database state without making additional GitHub API requests.
-
-### 4. File-Level Activity & Churn Aggregation
-- **Database Pushdown**: Native PostgreSQL aggregation groups across `file_changes` joined through `commits` to calculate total revisions, additions, deletions, total churn, and activity windows.
-- **Deterministic Deletion Tracking**: Evaluates the latest commit status for each file path (`is_deleted = true` if latest status is `REMOVED`).
-- **Primary Contributor Attribution**: Identifies the primary author per file based on total modification count with deterministic tie-breaking (latest timestamp, then contributor ID).
-- **Atomic Rebuild**: Runs in an atomic transaction per repository, updating existing files in place, purging stale rows, and applying JDBC batch persistence.
-
-### 5. Database Schema & Batch Persistence
-- `commits`, `file_changes`, `repository_contributors`, and `repository_files` tables enforce composite unique constraints (`uq_commits_repo_sha`, `uq_file_changes_commit_file`, `uq_repo_contrib`, and `uq_repo_files_repo_path`) guaranteeing storage-layer idempotency.
-- Persistence uses Hibernate JDBC batching (`batch_size: 50`, `order_inserts: true`, `order_updates: true`) in discrete transactions per stage.
 
 ---
 
@@ -279,6 +254,24 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 ### 10. Get Specific Repository Contributor Attribution
 - **Endpoint**: `GET /api/v1/repositories/{repositoryId}/contributors/{contributorId}`
 - **Response**: `200 OK` (or `404 Not Found`)
+
+### 11. List Repository Files (Paginated, Sorted & Filtered)
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/files?page=0&size=20&sort=totalChurn,desc&extension=java&isDeleted=false`
+- **Supported Query Parameters**: `page`, `size`, `sort`, `extension`, `isDeleted`
+- **Allowed Sort Fields**: `filePath`, `totalRevisions`, `totalAdditions`, `totalDeletions`, `totalChurn`, `firstModifiedAt`, `lastModifiedAt`
+- **Default Sort**: `totalChurn,desc`
+- **Response**: `200 OK` (Spring Data `Page<RepositoryFileResponse>`)
+
+### 12. Query Repository Hotspots
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/files/hotspots?page=0&size=20&sort=totalChurn,desc`
+- **Supported Query Parameters**: `page`, `size`, `sort`, `extension`, `isDeleted`
+- **Default Sort**: `totalChurn,desc`
+- **Response**: `200 OK` (Spring Data `Page<RepositoryFileResponse>`)
+
+### 13. Get Repository File Intelligence Detail
+- **Endpoint**: `GET /api/v1/repositories/{repositoryId}/files/{*filePath}`
+- **Example**: `GET /api/v1/repositories/1/files/src/main/java/com/gitpulse/GitPulseApplication.java`
+- **Response**: `200 OK` (`RepositoryFileResponse` with primary contributor details) or `404 Not Found`
 
 ---
 

@@ -25,6 +25,20 @@ public interface RepositoryFileJpaRepository extends JpaRepository<RepositoryFil
     @EntityGraph(attributePaths = {"primaryContributor"})
     Page<RepositoryFile> findByRepositoryId(Long repositoryId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"primaryContributor"})
+    @Query("""
+            SELECT rf FROM RepositoryFile rf
+            WHERE rf.repository.id = :repositoryId
+              AND (:extension IS NULL OR rf.extension = :extension)
+              AND (:isDeleted IS NULL OR rf.isDeleted = :isDeleted)
+            """)
+    Page<RepositoryFile> findByRepositoryIdWithFilters(
+            @Param("repositoryId") Long repositoryId,
+            @Param("extension") String extension,
+            @Param("isDeleted") Boolean isDeleted,
+            Pageable pageable
+    );
+
     @Query(value = """
             SELECT 
                 f.file_path AS filePath,
