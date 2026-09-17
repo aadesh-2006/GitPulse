@@ -105,4 +105,41 @@ public interface RepositoryContributorFileJpaRepository extends JpaRepository<Re
             @Param("repositoryId") Long repositoryId,
             Pageable pageable
     );
+
+    @Query(value = """
+            SELECT
+                fc.repository_id AS repositoryId,
+                fc.file_path AS filePath,
+                fc.contributor_count AS contributorCount,
+                fc.total_revisions_across_contributors AS totalRevisionsAcrossContributors,
+                CASE
+                    WHEN fc.total_revisions_across_contributors > 0
+                    THEN (fc.total_revisions * 1.0) / fc.total_revisions_across_contributors
+                    ELSE 0.0
+                END AS topContributorRevisionShare,
+                fc.contributor_id AS topContributorId
+            FROM (
+                SELECT
+                    rcf.repository_id,
+                    rcf.file_path,
+                    rcf.contributor_id,
+                    rcf.total_revisions,
+                    SUM(rcf.total_revisions) OVER (PARTITION BY rcf.repository_id, rcf.file_path) AS total_revisions_across_contributors,
+                    ROW_NUMBER() OVER (PARTITION BY rcf.repository_id, rcf.file_path ORDER BY rcf.total_revisions DESC, rcf.contributor_id ASC) AS contributor_rank,
+                    COUNT(*) OVER (PARTITION BY rcf.repository_id, rcf.file_path) AS contributor_count
+                FROM repository_contributor_files rcf
+                WHERE rcf.repository_id = :repositoryId
+            ) fc
+            WHERE fc.contributor_rank = 1
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT rcf.file_path)
+            FROM repository_contributor_files rcf
+            WHERE rcf.repository_id = :repositoryId
+            """,
+            nativeQuery = true)
+    Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipRow> findFileOwnershipByRepositoryId(
+            @Param("repositoryId") Long repositoryId,
+            Pageable pageable
+    );
 }

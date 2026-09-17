@@ -60,4 +60,14 @@ public class RepositoryContributorFileController {
         RepositoryContributorFileResponse response = queryService.getContributorFile(repositoryId, contributorId, filePath);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/file-ownership")
+    public ResponseEntity<Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse>> getFileOwnership(
+            @PathVariable Long repositoryId,
+            @PageableDefault(size = 20, sort = "topContributorRevisionShare", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> response =
+                queryService.getRepositoryFileOwnership(repositoryId, pageable);
+        return ResponseEntity.ok(response);
+    }
 }

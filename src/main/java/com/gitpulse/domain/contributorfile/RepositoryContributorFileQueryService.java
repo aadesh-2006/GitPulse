@@ -2,6 +2,7 @@ package com.gitpulse.domain.contributorfile;
 
 import com.gitpulse.common.exception.AppException;
 import com.gitpulse.common.exception.ResourceNotFoundException;
+import com.gitpulse.domain.contributor.Contributor;
 import com.gitpulse.domain.contributor.ContributorJpaRepository;
 import com.gitpulse.domain.contributorfile.dto.RepositoryContributorFileResponse;
 import com.gitpulse.domain.repository.RepositoryJpaRepository;
@@ -90,5 +91,39 @@ public class RepositoryContributorFileQueryService {
                     }
                     throw new ResourceNotFoundException("Contributor-file relationship not found for repository id: " + repositoryId + ", contributor id: " + contributorId + ", filePath: '" + targetPath + "'");
                 });
+    }
+
+    public Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> getRepositoryFileOwnership(
+            Long repositoryId,
+            Pageable pageable
+    ) {
+        if (!repositoryJpaRepository.existsById(repositoryId)) {
+            throw new ResourceNotFoundException("Repository not found with id: " + repositoryId);
+        }
+
+        Pageable sanitizedPageable = RepositoryFileOwnershipSortValidator.validateAndSanitize(pageable);
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipRow> rowsPage =
+                repositoryContributorFileJpaRepository.findFileOwnershipByRepositoryId(repositoryId, sanitizedPageable);
+
+        java.util.Set<Long> topContributorIds = rowsPage.getContent().stream()
+                .map(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipRow::getTopContributorId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+
+        java.util.Map<Long, Contributor> contributorMap = topContributorIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : contributorJpaRepository.findAllById(topContributorIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Contributor::getId, java.util.function.Function.identity()));
+
+        return rowsPage.map(row -> new com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse(
+                row.getRepositoryId(),
+                row.getFilePath(),
+                row.getContributorCount(),
+                row.getTotalRevisionsAcrossContributors(),
+                row.getTopContributorId() != null
+                        ? com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse.ContributorSummary.fromEntity(contributorMap.get(row.getTopContributorId()))
+                        : null,
+                row.getTopContributorRevisionShare() != null ? row.getTopContributorRevisionShare() : 0.0
+        ));
     }
 }

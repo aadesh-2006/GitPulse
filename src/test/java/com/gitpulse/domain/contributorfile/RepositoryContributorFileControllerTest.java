@@ -209,4 +209,66 @@ class RepositoryContributorFileControllerTest {
         org.assertj.core.api.Assertions.assertThat(captured.getSort().getOrderFor("totalRevisions").getDirection())
                 .isEqualTo(org.springframework.data.domain.Sort.Direction.ASC);
     }
+
+    @Test
+    @DisplayName("11. GET file-ownership returns paginated data with default sort")
+    void getFileOwnership_Default() throws Exception {
+        com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse response =
+                new com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse(
+                        10L,
+                        "src/App.java",
+                        3,
+                        20,
+                        new com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse.ContributorSummary(1L, "alice@corp.com", "alice", "Alice", "https://avatar.com/1"),
+                        0.5
+                );
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page =
+                new PageImpl<>(List.of(response), PageRequest.of(0, 20), 1);
+
+        when(queryService.getRepositoryFileOwnership(eq(10L), any(Pageable.class))).thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/repositories/10/file-ownership")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].repositoryId", is(10)))
+                .andExpect(jsonPath("$.content[0].filePath", is("src/App.java")))
+                .andExpect(jsonPath("$.content[0].contributorCount", is(3)))
+                .andExpect(jsonPath("$.content[0].totalRevisionsAcrossContributors", is(20)))
+                .andExpect(jsonPath("$.content[0].topContributor.id", is(1)))
+                .andExpect(jsonPath("$.content[0].topContributorRevisionShare", is(0.5)));
+    }
+
+    @Test
+    @DisplayName("12. GET file-ownership rejects invalid sort with HTTP 400")
+    void getFileOwnership_InvalidSort() throws Exception {
+        when(queryService.getRepositoryFileOwnership(eq(10L), any(Pageable.class)))
+                .thenThrow(new AppException("Invalid sort field: 'unsupported'"));
+
+        mockMvc.perform(get("/api/v1/repositories/10/file-ownership?sort=unsupported,asc")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", is("Invalid sort field: 'unsupported'")));
+    }
+
+    @Test
+    @DisplayName("13. GET file-ownership binds custom page, size, and sort into Pageable")
+    void getFileOwnership_PageableBinding() throws Exception {
+        when(queryService.getRepositoryFileOwnership(eq(10L), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/repositories/10/file-ownership?sort=totalRevisionsAcrossContributors,asc&page=2&size=10")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<Pageable> captor = org.mockito.ArgumentCaptor.forClass(Pageable.class);
+        verify(queryService).getRepositoryFileOwnership(eq(10L), captor.capture());
+
+        Pageable captured = captor.getValue();
+        org.assertj.core.api.Assertions.assertThat(captured.getPageNumber()).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(captured.getPageSize()).isEqualTo(10);
+        org.assertj.core.api.Assertions.assertThat(captured.getSort().getOrderFor("totalRevisionsAcrossContributors")).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(captured.getSort().getOrderFor("totalRevisionsAcrossContributors").getDirection())
+                .isEqualTo(org.springframework.data.domain.Sort.Direction.ASC);
+    }
 }

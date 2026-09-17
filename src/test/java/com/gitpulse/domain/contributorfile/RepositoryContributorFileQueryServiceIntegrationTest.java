@@ -261,4 +261,205 @@ class RepositoryContributorFileQueryServiceIntegrationTest {
         );
         assertThat(page2.getContent()).allMatch(r -> r.repositoryId().equals(repo2.getId()));
     }
+
+    @Test
+    @DisplayName("15. File ownership calculation: multiple contributors on one file (Alice=10, Bob=5, Charlie=5)")
+    void getRepositoryFileOwnership_MultipleContributors() {
+        Repository repoConcentration = repositoryJpaRepository.save(new Repository("ownerC", "repoC", "Repo C", "main"));
+        Instant now = Instant.now();
+
+        // Alice = 10, Bob = 5, Charlie = 5 on src/Concentrated.java
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoConcentration, alice, "src/Concentrated.java", 10, 100, 20, 120, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoConcentration, bob, "src/Concentrated.java", 5, 50, 10, 60, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoConcentration, charlie, "src/Concentrated.java", 5, 50, 10, 60, now, now));
+        repositoryContributorFileJpaRepository.flush();
+
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page =
+                queryService.getRepositoryFileOwnership(repoConcentration.getId(), PageRequest.of(0, 10));
+
+        assertThat(page.getTotalElements()).isEqualTo(1);
+        com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse record = page.getContent().get(0);
+
+        assertThat(record.filePath()).isEqualTo("src/Concentrated.java");
+        assertThat(record.contributorCount()).isEqualTo(3);
+        assertThat(record.totalRevisionsAcrossContributors()).isEqualTo(20);
+        assertThat(record.topContributor()).isNotNull();
+        assertThat(record.topContributor().id()).isEqualTo(alice.getId());
+        assertThat(record.topContributorRevisionShare()).isEqualTo(0.5);
+    }
+
+    @Test
+    @DisplayName("16. File ownership calculation: deterministic tie broken by lower contributorId")
+    void getRepositoryFileOwnership_DeterministicTie() {
+        Repository repoTie = repositoryJpaRepository.save(new Repository("ownerTie", "repoTie", "Repo Tie", "main"));
+        Instant now = Instant.now();
+
+        // Alice (lower ID) = 10, Bob (higher ID) = 10 on src/Tie.java
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoTie, bob, "src/Tie.java", 10, 100, 20, 120, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoTie, alice, "src/Tie.java", 10, 100, 20, 120, now, now));
+        repositoryContributorFileJpaRepository.flush();
+
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page =
+                queryService.getRepositoryFileOwnership(repoTie.getId(), PageRequest.of(0, 10));
+
+        assertThat(page.getTotalElements()).isEqualTo(1);
+        com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse record = page.getContent().get(0);
+
+        assertThat(record.topContributor().id()).isEqualTo(alice.getId()); // Alice has lower ID than Bob
+        assertThat(record.topContributorRevisionShare()).isEqualTo(0.5);
+        assertThat(record.contributorCount()).isEqualTo(2);
+        assertThat(record.totalRevisionsAcrossContributors()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("17. File ownership calculation: single contributor produces 1.0 share")
+    void getRepositoryFileOwnership_SingleContributor() {
+        Repository repoSingle = repositoryJpaRepository.save(new Repository("ownerS", "repoS", "Repo S", "main"));
+        Instant now = Instant.now();
+
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSingle, alice, "src/Solo.java", 20, 200, 10, 210, now, now));
+        repositoryContributorFileJpaRepository.flush();
+
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page =
+                queryService.getRepositoryFileOwnership(repoSingle.getId(), PageRequest.of(0, 10));
+
+        assertThat(page.getTotalElements()).isEqualTo(1);
+        com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse record = page.getContent().get(0);
+
+        assertThat(record.topContributor().id()).isEqualTo(alice.getId());
+        assertThat(record.topContributorRevisionShare()).isEqualTo(1.0);
+        assertThat(record.contributorCount()).isEqualTo(1);
+        assertThat(record.totalRevisionsAcrossContributors()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("18. File ownership calculation: multiple files aggregated independently with no duplicate rows")
+    void getRepositoryFileOwnership_MultipleFiles() {
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page =
+                queryService.getRepositoryFileOwnership(repo1.getId(), PageRequest.of(0, 10));
+
+        // repo1 has 2 distinct files: src/App.java (Alice=10, Bob=5) and src/Util.java (Alice=2)
+        assertThat(page.getTotalElements()).isEqualTo(2);
+        assertThat(page.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::filePath)
+                .containsExactlyInAnyOrder("src/App.java", "src/Util.java");
+    }
+
+    @Test
+    @DisplayName("19. File ownership repository isolation: repo 2 files never leak into repo 1")
+    void getRepositoryFileOwnership_RepositoryIsolation() {
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page1 =
+                queryService.getRepositoryFileOwnership(repo1.getId(), PageRequest.of(0, 50));
+        assertThat(page1.getContent()).allMatch(r -> r.repositoryId().equals(repo1.getId()));
+        assertThat(page1.getContent()).noneMatch(r -> r.filePath().equals("src/Other.java"));
+
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> page2 =
+                queryService.getRepositoryFileOwnership(repo2.getId(), PageRequest.of(0, 50));
+        assertThat(page2.getContent()).allMatch(r -> r.repositoryId().equals(repo2.getId()));
+    }
+
+    @Test
+    @DisplayName("20. File ownership invalid sort rejects with AppException")
+    void getRepositoryFileOwnership_InvalidSort() {
+        assertThatThrownBy(() -> queryService.getRepositoryFileOwnership(
+                repo1.getId(),
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.ASC, "unsupportedColumn"))
+        )).isInstanceOf(AppException.class)
+                .hasMessageContaining("Invalid sort field: 'unsupportedColumn'");
+    }
+
+    @Test
+    @DisplayName("21. File ownership explicit sorting: ASC and DESC on topContributorRevisionShare with deterministic secondary sort")
+    void getRepositoryFileOwnership_ExplicitSorting_TopContributorRevisionShare() {
+        Repository repoSort = repositoryJpaRepository.save(new Repository("ownerSort", "repoSort", "Repo Sort", "main"));
+        Instant now = Instant.now();
+
+        // fileA: Alice=5, Bob=5 -> total=10 -> share=0.50
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, alice, "src/fileA.java", 5, 50, 0, 50, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, bob, "src/fileA.java", 5, 50, 0, 50, now, now));
+
+        // fileB: Alice=10 -> total=10 -> share=1.00
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, alice, "src/fileB.java", 10, 100, 0, 100, now, now));
+
+        // fileC: Alice=15, Bob=5 -> total=20 -> share=0.75
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, alice, "src/fileC.java", 15, 150, 0, 150, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, bob, "src/fileC.java", 5, 50, 0, 50, now, now));
+
+        // fileD: Alice=10, Bob=10 -> total=20 -> share=0.50 (Tied with fileA on share, but different filePath)
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, alice, "src/fileD.java", 10, 100, 0, 100, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort, bob, "src/fileD.java", 10, 100, 0, 100, now, now));
+
+        repositoryContributorFileJpaRepository.flush();
+
+        // ASC sort: fileA (0.50), fileD (0.50), fileC (0.75), fileB (1.00) (Deterministic secondary sort on filePath ASC)
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> pageAsc =
+                queryService.getRepositoryFileOwnership(
+                        repoSort.getId(),
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.ASC, "topContributorRevisionShare"))
+                );
+
+        assertThat(pageAsc.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::filePath)
+                .containsExactly("src/fileA.java", "src/fileD.java", "src/fileC.java", "src/fileB.java");
+        assertThat(pageAsc.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::topContributorRevisionShare)
+                .containsExactly(0.5, 0.5, 0.75, 1.0);
+
+        // DESC sort: fileB (1.00), fileC (0.75), fileA (0.50), fileD (0.50)
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> pageDesc =
+                queryService.getRepositoryFileOwnership(
+                        repoSort.getId(),
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "topContributorRevisionShare"))
+                );
+
+        assertThat(pageDesc.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::filePath)
+                .containsExactly("src/fileB.java", "src/fileC.java", "src/fileA.java", "src/fileD.java");
+        assertThat(pageDesc.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::topContributorRevisionShare)
+                .containsExactly(1.0, 0.75, 0.5, 0.5);
+    }
+
+    @Test
+    @DisplayName("22. File ownership explicit sorting on other allowed fields: contributorCount and totalRevisionsAcrossContributors")
+    void getRepositoryFileOwnership_ExplicitSorting_OtherFields() {
+        Repository repoSort2 = repositoryJpaRepository.save(new Repository("ownerSort2", "repoSort2", "Repo Sort 2", "main"));
+        Instant now = Instant.now();
+
+        // file1: 1 contributor (Alice=1 revision)
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort2, alice, "src/file1.java", 1, 10, 0, 10, now, now));
+
+        // file2: 3 contributors (Alice=2, Bob=3, Charlie=5 -> total=10 revisions)
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort2, alice, "src/file2.java", 2, 20, 0, 20, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort2, bob, "src/file2.java", 3, 30, 0, 30, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort2, charlie, "src/file2.java", 5, 50, 0, 50, now, now));
+
+        // file3: 2 contributors (Alice=50, Bob=50 -> total=100 revisions)
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort2, alice, "src/file3.java", 50, 500, 0, 500, now, now));
+        repositoryContributorFileJpaRepository.save(new RepositoryContributorFile(repoSort2, bob, "src/file3.java", 50, 500, 0, 500, now, now));
+
+        repositoryContributorFileJpaRepository.flush();
+
+        // Sort by contributorCount ASC: file1 (1), file3 (2), file2 (3)
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> pageByCount =
+                queryService.getRepositoryFileOwnership(
+                        repoSort2.getId(),
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.ASC, "contributorCount"))
+                );
+        assertThat(pageByCount.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::filePath)
+                .containsExactly("src/file1.java", "src/file3.java", "src/file2.java");
+
+        // Sort by totalRevisionsAcrossContributors DESC: file3 (100), file2 (10), file1 (1)
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> pageByRevisions =
+                queryService.getRepositoryFileOwnership(
+                        repoSort2.getId(),
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "totalRevisionsAcrossContributors"))
+                );
+        assertThat(pageByRevisions.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::filePath)
+                .containsExactly("src/file3.java", "src/file2.java", "src/file1.java");
+
+        // Sort by filePath ASC: file1, file2, file3
+        Page<com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse> pageByPath =
+                queryService.getRepositoryFileOwnership(
+                        repoSort2.getId(),
+                        PageRequest.of(0, 10, Sort.by(Sort.Direction.ASC, "filePath"))
+                );
+        assertThat(pageByPath.getContent()).extracting(com.gitpulse.domain.contributorfile.dto.RepositoryFileOwnershipResponse::filePath)
+                .containsExactly("src/file1.java", "src/file2.java", "src/file3.java");
+    }
 }
