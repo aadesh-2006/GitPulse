@@ -3,7 +3,9 @@ package com.gitpulse.domain.analysis.processor;
 import com.gitpulse.domain.analysis.AnalysisJob;
 import com.gitpulse.domain.analysis.AnalysisJobJpaRepository;
 import com.gitpulse.domain.analysis.AnalysisJobStatus;
+import com.gitpulse.domain.commit.CommitClassificationPipelineService;
 import com.gitpulse.domain.commit.CommitIngestionService;
+import com.gitpulse.domain.commit.dto.CommitClassificationResult;
 import com.gitpulse.domain.commit.dto.CommitIngestionResult;
 import com.gitpulse.domain.contributor.ContributorAggregationService;
 import com.gitpulse.domain.contributor.dto.ContributorAggregationResult;
@@ -25,17 +27,20 @@ public class RepositoryAnalysisProcessor {
 
     private final AnalysisJobJpaRepository analysisJobJpaRepository;
     private final CommitIngestionService commitIngestionService;
+    private final CommitClassificationPipelineService commitClassificationPipelineService;
     private final FileChangeIngestionService fileChangeIngestionService;
     private final ContributorAggregationService contributorAggregationService;
     private final RepositoryFileAggregationService repositoryFileAggregationService;
 
     public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository,
                                        CommitIngestionService commitIngestionService,
+                                       CommitClassificationPipelineService commitClassificationPipelineService,
                                        FileChangeIngestionService fileChangeIngestionService,
                                        ContributorAggregationService contributorAggregationService,
                                        RepositoryFileAggregationService repositoryFileAggregationService) {
         this.analysisJobJpaRepository = Objects.requireNonNull(analysisJobJpaRepository, "analysisJobJpaRepository must not be null");
         this.commitIngestionService = Objects.requireNonNull(commitIngestionService, "commitIngestionService must not be null");
+        this.commitClassificationPipelineService = Objects.requireNonNull(commitClassificationPipelineService, "commitClassificationPipelineService must not be null");
         this.fileChangeIngestionService = Objects.requireNonNull(fileChangeIngestionService, "fileChangeIngestionService must not be null");
         this.contributorAggregationService = Objects.requireNonNull(contributorAggregationService, "contributorAggregationService must not be null");
         this.repositoryFileAggregationService = Objects.requireNonNull(repositoryFileAggregationService, "repositoryFileAggregationService must not be null");
@@ -83,14 +88,21 @@ public class RepositoryAnalysisProcessor {
                     jobId, commitResult.getDurationMs(), commitResult.getPagesProcessed(), commitResult.getCommitsReceived(),
                     commitResult.getCommitsInserted(), commitResult.getDuplicatesEncountered());
 
-            // Stage 2: GitHub File Change Ingestion
+            // Stage 2: Materialized Commit Classification
+            CommitClassificationResult classificationResult = commitClassificationPipelineService.classifyCommits(repositoryId, jobId);
+
+            log.info("Analysis job [id={}] commit classification finished in {}ms: processed={}, classified={}",
+                    jobId, classificationResult.durationMs(), classificationResult.totalCommitsProcessed(),
+                    classificationResult.classifiedCount());
+
+            // Stage 3: GitHub File Change Ingestion
             FileChangeIngestionResult fileResult = fileChangeIngestionService.ingestFileChanges(repositoryId, jobId);
 
             log.info("Analysis job [id={}] file-change ingestion finished in {}ms: commitsProcessed={}, commitsSkipped={}, filesReceived={}, filesInserted={}, duplicates={}",
                     jobId, fileResult.getDurationMs(), fileResult.getCommitsProcessed(), fileResult.getCommitsSkipped(),
                     fileResult.getFilesReceived(), fileResult.getFilesInserted(), fileResult.getDuplicatesEncountered());
 
-            // Stage 3: Materialized Contributor Activity Attribution Aggregation
+            // Stage 4: Materialized Contributor Activity Attribution Aggregation
             ContributorAggregationResult contributorResult = contributorAggregationService.aggregateContributors(repositoryId, jobId);
 
             log.info("Analysis job [id={}] contributor aggregation finished in {}ms: aggregated={}, created={}, attributionsCreated={}, attributionsUpdated={}",
@@ -98,7 +110,7 @@ public class RepositoryAnalysisProcessor {
                     contributorResult.getContributorsCreated(), contributorResult.getAttributionsCreated(),
                     contributorResult.getAttributionsUpdated());
 
-            // Stage 4: Materialized Repository File Activity & Code Churn Aggregation
+            // Stage 5: Materialized Repository File Activity & Code Churn Aggregation
             RepositoryFileAggregationResult fileAggResult = repositoryFileAggregationService.aggregateRepositoryFiles(repositoryId);
 
             log.info("Analysis job [id={}] repository file aggregation finished: totalFiles={}, created={}, updated={}, deleted={}",

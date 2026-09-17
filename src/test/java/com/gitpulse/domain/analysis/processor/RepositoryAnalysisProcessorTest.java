@@ -3,7 +3,9 @@ package com.gitpulse.domain.analysis.processor;
 import com.gitpulse.domain.analysis.AnalysisJob;
 import com.gitpulse.domain.analysis.AnalysisJobJpaRepository;
 import com.gitpulse.domain.analysis.AnalysisJobStatus;
+import com.gitpulse.domain.commit.CommitClassificationPipelineService;
 import com.gitpulse.domain.commit.CommitIngestionService;
+import com.gitpulse.domain.commit.dto.CommitClassificationResult;
 import com.gitpulse.domain.commit.dto.CommitIngestionResult;
 import com.gitpulse.domain.contributor.ContributorAggregationService;
 import com.gitpulse.domain.contributor.dto.ContributorAggregationResult;
@@ -42,6 +44,9 @@ class RepositoryAnalysisProcessorTest {
     private CommitIngestionService commitIngestionService;
 
     @Mock
+    private CommitClassificationPipelineService commitClassificationPipelineService;
+
+    @Mock
     private FileChangeIngestionService fileChangeIngestionService;
 
     @Mock
@@ -59,6 +64,7 @@ class RepositoryAnalysisProcessorTest {
         processor = new RepositoryAnalysisProcessor(
                 analysisJobJpaRepository,
                 commitIngestionService,
+                commitClassificationPipelineService,
                 fileChangeIngestionService,
                 contributorAggregationService,
                 repositoryFileAggregationService
@@ -72,12 +78,14 @@ class RepositoryAnalysisProcessorTest {
     }
 
     @Test
-    @DisplayName("Should successfully transition PENDING job to RUNNING, invoke all 4 stages in strict dependency order, and transition to COMPLETED")
+    @DisplayName("Should successfully transition PENDING job to RUNNING, invoke all 5 stages in strict dependency order, and transition to COMPLETED")
     void processJob_Success() {
         when(analysisJobJpaRepository.findWithRepositoryById(100L)).thenReturn(Optional.of(pendingJob));
         when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
         when(commitIngestionService.ingestCommits(1L, 100L))
                 .thenReturn(new CommitIngestionResult(2, 50, 45, 5, 250));
+        when(commitClassificationPipelineService.classifyCommits(1L, 100L))
+                .thenReturn(new CommitClassificationResult(45, 45, 100));
         when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
                 .thenReturn(new FileChangeIngestionResult(45, 0, 120, 120, 0, 300));
         when(contributorAggregationService.aggregateContributors(1L, 100L))
@@ -94,12 +102,14 @@ class RepositoryAnalysisProcessorTest {
 
         InOrder inOrder = inOrder(
                 commitIngestionService,
+                commitClassificationPipelineService,
                 fileChangeIngestionService,
                 contributorAggregationService,
                 repositoryFileAggregationService
         );
 
         inOrder.verify(commitIngestionService).ingestCommits(1L, 100L);
+        inOrder.verify(commitClassificationPipelineService).classifyCommits(1L, 100L);
         inOrder.verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
         inOrder.verify(contributorAggregationService).aggregateContributors(1L, 100L);
         inOrder.verify(repositoryFileAggregationService).aggregateRepositoryFiles(1L);
@@ -124,6 +134,33 @@ class RepositoryAnalysisProcessorTest {
         assertThat(pendingJob.getCompletedAt()).isNotNull();
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
+        verify(commitClassificationPipelineService, never()).classifyCommits(any(), any());
+        verify(fileChangeIngestionService, never()).ingestFileChanges(any(), any());
+        verify(contributorAggregationService, never()).aggregateContributors(any(), any());
+        verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
+        verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
+    }
+
+    @Test
+    @DisplayName("Should mark job FAILED and rethrow exception when commit classification fails")
+    void processJob_Failure_CommitClassificationThrows_TransitionsToFailedAndRethrows() {
+        when(analysisJobJpaRepository.findWithRepositoryById(100L)).thenReturn(Optional.of(pendingJob));
+        when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
+        when(commitIngestionService.ingestCommits(1L, 100L))
+                .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 100));
+        when(commitClassificationPipelineService.classifyCommits(1L, 100L))
+                .thenThrow(new RuntimeException("Classification DB write failure"));
+
+        assertThatThrownBy(() -> processor.processJob(100L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Classification DB write failure");
+
+        assertThat(pendingJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(pendingJob.getErrorMessage()).isEqualTo("Classification DB write failure");
+        assertThat(pendingJob.getCompletedAt()).isNotNull();
+
+        verify(commitIngestionService).ingestCommits(1L, 100L);
+        verify(commitClassificationPipelineService).classifyCommits(1L, 100L);
         verify(fileChangeIngestionService, never()).ingestFileChanges(any(), any());
         verify(contributorAggregationService, never()).aggregateContributors(any(), any());
         verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
@@ -137,6 +174,8 @@ class RepositoryAnalysisProcessorTest {
         when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
         when(commitIngestionService.ingestCommits(1L, 100L))
                 .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 100));
+        when(commitClassificationPipelineService.classifyCommits(1L, 100L))
+                .thenReturn(new CommitClassificationResult(10, 10, 50));
         when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
                 .thenThrow(new RuntimeException("GitHub 403 Rate Limit on commit detail"));
 
@@ -149,6 +188,7 @@ class RepositoryAnalysisProcessorTest {
         assertThat(pendingJob.getCompletedAt()).isNotNull();
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
+        verify(commitClassificationPipelineService).classifyCommits(1L, 100L);
         verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
         verify(contributorAggregationService, never()).aggregateContributors(any(), any());
         verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
@@ -162,6 +202,8 @@ class RepositoryAnalysisProcessorTest {
         when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
         when(commitIngestionService.ingestCommits(1L, 100L))
                 .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 100));
+        when(commitClassificationPipelineService.classifyCommits(1L, 100L))
+                .thenReturn(new CommitClassificationResult(10, 10, 50));
         when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
                 .thenReturn(new FileChangeIngestionResult(10, 0, 20, 20, 0, 100));
         when(contributorAggregationService.aggregateContributors(1L, 100L))
@@ -176,6 +218,7 @@ class RepositoryAnalysisProcessorTest {
         assertThat(pendingJob.getCompletedAt()).isNotNull();
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
+        verify(commitClassificationPipelineService).classifyCommits(1L, 100L);
         verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
         verify(contributorAggregationService).aggregateContributors(1L, 100L);
         verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
@@ -189,6 +232,8 @@ class RepositoryAnalysisProcessorTest {
         when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
         when(commitIngestionService.ingestCommits(1L, 100L))
                 .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 100));
+        when(commitClassificationPipelineService.classifyCommits(1L, 100L))
+                .thenReturn(new CommitClassificationResult(10, 10, 50));
         when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
                 .thenReturn(new FileChangeIngestionResult(10, 0, 20, 20, 0, 100));
         when(contributorAggregationService.aggregateContributors(1L, 100L))
@@ -205,6 +250,7 @@ class RepositoryAnalysisProcessorTest {
         assertThat(pendingJob.getCompletedAt()).isNotNull();
 
         verify(commitIngestionService).ingestCommits(1L, 100L);
+        verify(commitClassificationPipelineService).classifyCommits(1L, 100L);
         verify(fileChangeIngestionService).ingestFileChanges(1L, 100L);
         verify(contributorAggregationService).aggregateContributors(1L, 100L);
         verify(repositoryFileAggregationService).aggregateRepositoryFiles(1L);

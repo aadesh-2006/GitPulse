@@ -1,6 +1,8 @@
 package com.gitpulse.domain.analysis;
 
 import com.gitpulse.domain.analysis.dto.AnalysisJobResponse;
+import com.gitpulse.domain.commit.Commit;
+import com.gitpulse.domain.commit.CommitClassification;
 import com.gitpulse.domain.commit.CommitJpaRepository;
 import com.gitpulse.domain.contributor.ContributorJpaRepository;
 import com.gitpulse.domain.contributor.RepositoryContributorJpaRepository;
@@ -138,6 +140,8 @@ class AnalysisJobKafkaIntegrationTest {
                     // 1. Commits verified
                     assertThat(commitJpaRepository.countByRepositoryId(repo.getId())).isEqualTo(1);
                     assertThat(commitJpaRepository.existsByRepositoryIdAndGithubCommitSha(repo.getId(), sha)).isTrue();
+                    Commit savedCommit = commitJpaRepository.findByRepositoryIdOrderByCommittedAtDesc(repo.getId(), org.springframework.data.domain.PageRequest.of(0, 1)).getContent().get(0);
+                    assertThat(savedCommit.getClassification()).isEqualTo(CommitClassification.FEATURE);
 
                     // 2. File changes verified
                     assertThat(fileChangeJpaRepository.count()).isEqualTo(1);

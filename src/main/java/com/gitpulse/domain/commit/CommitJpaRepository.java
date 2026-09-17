@@ -23,4 +23,7 @@ public interface CommitJpaRepository extends JpaRepository<Commit, Long> {
     Page<Commit> findByRepositoryIdOrderByCommittedAtDesc(Long repositoryId, Pageable pageable);
 
     Page<Commit> findByRepositoryIdOrderByIdAsc(Long repositoryId, Pageable pageable);
+
+    @Query("SELECT c FROM Commit c WHERE c.repository.id = :repositoryId AND c.classification IS NULL ORDER BY c.id ASC")
+    List<Commit> findUnclassifiedByRepositoryId(@Param("repositoryId") Long repositoryId, Pageable pageable);
 }
