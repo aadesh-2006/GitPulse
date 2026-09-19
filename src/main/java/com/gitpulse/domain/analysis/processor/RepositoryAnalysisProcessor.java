@@ -9,14 +9,19 @@ import com.gitpulse.domain.commit.dto.CommitClassificationResult;
 import com.gitpulse.domain.commit.dto.CommitIngestionResult;
 import com.gitpulse.domain.contributor.ContributorAggregationService;
 import com.gitpulse.domain.contributor.dto.ContributorAggregationResult;
+import com.gitpulse.domain.contributorfile.RepositoryContributorFileAggregationService;
+import com.gitpulse.domain.contributorfile.dto.RepositoryContributorFileAggregationResult;
 import com.gitpulse.domain.file.RepositoryFileAggregationService;
 import com.gitpulse.domain.file.dto.RepositoryFileAggregationResult;
 import com.gitpulse.domain.filechange.FileChangeIngestionService;
 import com.gitpulse.domain.filechange.dto.FileChangeIngestionResult;
+import com.gitpulse.domain.risk.RepositoryFileRiskMaterializationService;
+import com.gitpulse.domain.risk.dto.RepositoryFileRiskMaterializationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -31,19 +36,25 @@ public class RepositoryAnalysisProcessor {
     private final FileChangeIngestionService fileChangeIngestionService;
     private final ContributorAggregationService contributorAggregationService;
     private final RepositoryFileAggregationService repositoryFileAggregationService;
+    private final RepositoryContributorFileAggregationService repositoryContributorFileAggregationService;
+    private final RepositoryFileRiskMaterializationService repositoryFileRiskMaterializationService;
 
     public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository,
                                        CommitIngestionService commitIngestionService,
                                        CommitClassificationPipelineService commitClassificationPipelineService,
                                        FileChangeIngestionService fileChangeIngestionService,
                                        ContributorAggregationService contributorAggregationService,
-                                       RepositoryFileAggregationService repositoryFileAggregationService) {
+                                       RepositoryFileAggregationService repositoryFileAggregationService,
+                                       RepositoryContributorFileAggregationService repositoryContributorFileAggregationService,
+                                       RepositoryFileRiskMaterializationService repositoryFileRiskMaterializationService) {
         this.analysisJobJpaRepository = Objects.requireNonNull(analysisJobJpaRepository, "analysisJobJpaRepository must not be null");
         this.commitIngestionService = Objects.requireNonNull(commitIngestionService, "commitIngestionService must not be null");
         this.commitClassificationPipelineService = Objects.requireNonNull(commitClassificationPipelineService, "commitClassificationPipelineService must not be null");
         this.fileChangeIngestionService = Objects.requireNonNull(fileChangeIngestionService, "fileChangeIngestionService must not be null");
         this.contributorAggregationService = Objects.requireNonNull(contributorAggregationService, "contributorAggregationService must not be null");
         this.repositoryFileAggregationService = Objects.requireNonNull(repositoryFileAggregationService, "repositoryFileAggregationService must not be null");
+        this.repositoryContributorFileAggregationService = Objects.requireNonNull(repositoryContributorFileAggregationService, "repositoryContributorFileAggregationService must not be null");
+        this.repositoryFileRiskMaterializationService = Objects.requireNonNull(repositoryFileRiskMaterializationService, "repositoryFileRiskMaterializationService must not be null");
     }
 
     public void processJob(Long jobId) {
@@ -116,6 +127,25 @@ public class RepositoryAnalysisProcessor {
             log.info("Analysis job [id={}] repository file aggregation finished: totalFiles={}, created={}, updated={}, deleted={}",
                     jobId, fileAggResult.totalFilesProcessed(), fileAggResult.createdCount(),
                     fileAggResult.updatedCount(), fileAggResult.deletedCount());
+
+            // Stage 6: Materialized Contributor-File Aggregation
+            RepositoryContributorFileAggregationResult contributorFileResult =
+                    repositoryContributorFileAggregationService.aggregateRepositoryContributorFiles(repositoryId);
+
+            log.info("Analysis job [id={}] contributor-file aggregation finished: processed={}, created={}, updated={}, unchanged={}, deleted={}",
+                    jobId, contributorFileResult.totalRowsProcessed(), contributorFileResult.createdCount(),
+                    contributorFileResult.updatedCount(), contributorFileResult.unchangedCount(), contributorFileResult.deletedCount());
+
+            // Stage 7: Deterministic File Risk Score Materialization
+            Instant referenceTime = Objects.requireNonNull(
+                    job.getCreatedAt(),
+                    "Analysis job createdAt must not be null before processing"
+            );
+            RepositoryFileRiskMaterializationResult riskResult =
+                    repositoryFileRiskMaterializationService.materializeFileRisks(repositoryId, referenceTime);
+
+            log.info("Analysis job [id={}] file risk materialization finished: totalProcessed={}, updated={}, unchanged={}",
+                    jobId, riskResult.totalFilesProcessed(), riskResult.updatedCount(), riskResult.unchangedCount());
 
             // Transition state: RUNNING -> COMPLETED
             job.markCompleted();

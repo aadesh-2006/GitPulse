@@ -6,6 +6,7 @@ import com.gitpulse.domain.commit.CommitClassification;
 import com.gitpulse.domain.commit.CommitJpaRepository;
 import com.gitpulse.domain.contributor.ContributorJpaRepository;
 import com.gitpulse.domain.contributor.RepositoryContributorJpaRepository;
+import com.gitpulse.domain.contributorfile.RepositoryContributorFileJpaRepository;
 import com.gitpulse.domain.file.RepositoryFileJpaRepository;
 import com.gitpulse.domain.filechange.FileChangeJpaRepository;
 import com.gitpulse.domain.repository.Repository;
@@ -64,6 +65,9 @@ class AnalysisJobKafkaIntegrationTest {
 
     @Autowired
     private RepositoryContributorJpaRepository repositoryContributorJpaRepository;
+
+    @Autowired
+    private RepositoryContributorFileJpaRepository repositoryContributorFileJpaRepository;
 
     @Autowired
     private RepositoryFileJpaRepository repositoryFileJpaRepository;
@@ -169,6 +173,24 @@ class AnalysisJobKafkaIntegrationTest {
                     assertThat(rf.isDeleted()).isFalse();
                     assertThat(rf.getPrimaryContributor()).isNotNull();
                     assertThat(rf.getPrimaryContributor().getEmail()).isEqualTo("dev@flink.apache.org");
+
+                    // 5. Materialized contributor-file attribution verified
+                    assertThat(repositoryContributorFileJpaRepository.countByRepositoryId(repo.getId())).isEqualTo(1);
+                    var contributorFiles = repositoryContributorFileJpaRepository.findByRepositoryId(repo.getId());
+                    assertThat(contributorFiles).hasSize(1);
+                    var rcf = contributorFiles.get(0);
+                    assertThat(rcf.getFilePath()).isEqualTo("flink-core/src/main/java/FlinkApp.java");
+                    assertThat(rcf.getContributor().getEmail()).isEqualTo("dev@flink.apache.org");
+                    assertThat(rcf.getTotalRevisions()).isEqualTo(1);
+                    assertThat(rcf.getTotalChurn()).isEqualTo(25);
+
+                    // 6. Deterministic file risk scores verified
+                    assertThat(rf.getCompositeScore()).isGreaterThan(0.0);
+                    assertThat(rf.getBaselineScore()).isGreaterThan(0.0);
+                    assertThat(rf.getRevisionFrequencyScore()).isGreaterThan(0.0);
+                    assertThat(rf.getChurnScore()).isGreaterThan(0.0);
+                    assertThat(rf.getRecencyScore()).isGreaterThan(0.0);
+                    assertThat(rf.getOwnershipConcentrationScore()).isGreaterThan(0.0);
                 });
     }
 }
