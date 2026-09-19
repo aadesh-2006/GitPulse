@@ -75,6 +75,24 @@ public class RepositoryFile {
     @JoinColumn(name = "primary_contributor_id")
     private Contributor primaryContributor;
 
+    @Column(name = "baseline_score", nullable = false)
+    private double baselineScore;
+
+    @Column(name = "revision_frequency_score", nullable = false)
+    private double revisionFrequencyScore;
+
+    @Column(name = "churn_score", nullable = false)
+    private double churnScore;
+
+    @Column(name = "recency_score", nullable = false)
+    private double recencyScore;
+
+    @Column(name = "ownership_concentration_score", nullable = false)
+    private double ownershipConcentrationScore;
+
+    @Column(name = "composite_score", nullable = false)
+    private double compositeScore;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -146,6 +164,45 @@ public class RepositoryFile {
         }
         this.primaryContributor = primaryContributor;
         this.updatedAt = Instant.now();
+    }
+
+    public void updateRiskScores(double baselineScore,
+                                 double revisionFrequencyScore,
+                                 double churnScore,
+                                 double recencyScore,
+                                 double ownershipConcentrationScore,
+                                 double compositeScore) {
+        this.baselineScore = baselineScore;
+        this.revisionFrequencyScore = revisionFrequencyScore;
+        this.churnScore = churnScore;
+        this.recencyScore = recencyScore;
+        this.ownershipConcentrationScore = ownershipConcentrationScore;
+        this.compositeScore = compositeScore;
+        this.updatedAt = Instant.now();
+    }
+
+    public double getBaselineScore() {
+        return baselineScore;
+    }
+
+    public double getRevisionFrequencyScore() {
+        return revisionFrequencyScore;
+    }
+
+    public double getChurnScore() {
+        return churnScore;
+    }
+
+    public double getRecencyScore() {
+        return recencyScore;
+    }
+
+    public double getOwnershipConcentrationScore() {
+        return ownershipConcentrationScore;
+    }
+
+    public double getCompositeScore() {
+        return compositeScore;
     }
 
     public Long getId() {

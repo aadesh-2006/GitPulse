@@ -78,4 +78,13 @@ public interface RepositoryFileJpaRepository extends JpaRepository<RepositoryFil
             ORDER BY f.file_path ASC, COUNT(f.id) DESC, MAX(c.committed_at) DESC, contrib.id ASC
             """, nativeQuery = true)
     List<FilePrimaryContributorRow> findPrimaryContributorsByRepositoryId(@Param("repositoryId") Long repositoryId);
+
+    @Query("""
+            SELECT
+                COALESCE(MAX(rf.totalRevisions), 0) AS maxRevisions,
+                COALESCE(MAX(rf.totalChurn), 0) AS maxChurn
+            FROM RepositoryFile rf
+            WHERE rf.repository.id = :repositoryId
+            """)
+    com.gitpulse.domain.file.dto.RepositoryFileNormalizationMaximaRow findNormalizationMaximaByRepositoryId(@Param("repositoryId") Long repositoryId);
 }

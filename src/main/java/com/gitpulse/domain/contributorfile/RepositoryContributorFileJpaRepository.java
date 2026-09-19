@@ -142,4 +142,29 @@ public interface RepositoryContributorFileJpaRepository extends JpaRepository<Re
             @Param("repositoryId") Long repositoryId,
             Pageable pageable
     );
+
+    @Query(value = """
+            SELECT
+                fc.file_path AS filePath,
+                CASE
+                    WHEN fc.total_revisions_across_contributors > 0
+                    THEN (fc.total_revisions * 1.0) / fc.total_revisions_across_contributors
+                    ELSE 0.0
+                END AS topContributorRevisionShare
+            FROM (
+                SELECT
+                    rcf.file_path,
+                    rcf.total_revisions,
+                    SUM(rcf.total_revisions) OVER (PARTITION BY rcf.file_path) AS total_revisions_across_contributors,
+                    ROW_NUMBER() OVER (PARTITION BY rcf.file_path ORDER BY rcf.total_revisions DESC, rcf.contributor_id ASC) AS contributor_rank
+                FROM repository_contributor_files rcf
+                WHERE rcf.repository_id = :repositoryId
+                  AND rcf.file_path IN (:filePaths)
+            ) fc
+            WHERE fc.contributor_rank = 1
+            """, nativeQuery = true)
+    List<com.gitpulse.domain.contributorfile.dto.FileOwnershipShareRow> findOwnershipSharesByRepositoryIdAndFilePaths(
+            @Param("repositoryId") Long repositoryId,
+            @Param("filePaths") java.util.Collection<String> filePaths
+    );
 }
