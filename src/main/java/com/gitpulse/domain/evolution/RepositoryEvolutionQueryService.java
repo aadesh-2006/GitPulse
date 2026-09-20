@@ -5,6 +5,7 @@ import com.gitpulse.domain.evolution.dto.RepositoryEvolutionResponse;
 import com.gitpulse.domain.evolution.dto.RepositoryMonthlyEvolutionBucketResponse;
 import com.gitpulse.domain.evolution.dto.RepositoryMonthlyEvolutionRow;
 import com.gitpulse.domain.repository.RepositoryJpaRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,7 @@ public class RepositoryEvolutionQueryService {
         this.evolutionJpaRepository = Objects.requireNonNull(evolutionJpaRepository, "evolutionJpaRepository must not be null");
     }
 
+    @Cacheable(value = "repositoryEvolution", keyGenerator = "evolutionCacheKeyGenerator")
     public RepositoryEvolutionResponse getRepositoryEvolution(Long repositoryId, Instant from, Instant to) {
         Objects.requireNonNull(repositoryId, "repositoryId must not be null");
 

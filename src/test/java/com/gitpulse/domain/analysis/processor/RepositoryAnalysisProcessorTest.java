@@ -68,6 +68,9 @@ class RepositoryAnalysisProcessorTest {
     @Mock
     private RepositoryFileRiskMaterializationService repositoryFileRiskMaterializationService;
 
+    @Mock
+    private com.gitpulse.domain.evolution.cache.RepositoryEvolutionCacheVersionService cacheVersionService;
+
     private RepositoryAnalysisProcessor processor;
     private Repository sampleRepository;
     private AnalysisJob pendingJob;
@@ -83,7 +86,8 @@ class RepositoryAnalysisProcessorTest {
                 contributorAggregationService,
                 repositoryFileAggregationService,
                 repositoryContributorFileAggregationService,
-                repositoryFileRiskMaterializationService
+                repositoryFileRiskMaterializationService,
+                cacheVersionService
         );
 
         sampleRepository = new Repository("spring-projects", "spring-boot");
@@ -496,5 +500,34 @@ class RepositoryAnalysisProcessorTest {
         verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
         verify(repositoryContributorFileAggregationService, never()).aggregateRepositoryContributorFiles(any());
         verify(repositoryFileRiskMaterializationService, never()).materializeFileRisks(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should safely complete job and log warning when Redis cache version increment throws an unexpected exception")
+    void processJob_RedisIncrementFailure_JobRemainsCompleted() {
+        when(analysisJobJpaRepository.findWithRepositoryById(100L)).thenReturn(Optional.of(pendingJob));
+        when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
+        when(commitIngestionService.ingestCommits(1L, 100L))
+                .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 10));
+        when(commitClassificationPipelineService.classifyCommits(1L, 100L))
+                .thenReturn(new CommitClassificationResult(10, 10, 10));
+        when(fileChangeIngestionService.ingestFileChanges(1L, 100L))
+                .thenReturn(new FileChangeIngestionResult(10, 0, 10, 10, 0, 10));
+        when(contributorAggregationService.aggregateContributors(1L, 100L))
+                .thenReturn(new ContributorAggregationResult(1, 1, 1, 0, 10));
+        when(repositoryFileAggregationService.aggregateRepositoryFiles(1L))
+                .thenReturn(new RepositoryFileAggregationResult(1L, 1, 1, 0, 0));
+        when(repositoryContributorFileAggregationService.aggregateRepositoryContributorFiles(1L))
+                .thenReturn(new RepositoryContributorFileAggregationResult(1L, 1, 1, 0, 0, 0));
+        when(repositoryFileRiskMaterializationService.materializeFileRisks(eq(1L), any(Instant.class)))
+                .thenReturn(new RepositoryFileRiskMaterializationResult(1L, 1, 1, 0));
+
+        when(cacheVersionService.incrementVersion(1L)).thenThrow(new RuntimeException("Redis connection error"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> processor.processJob(100L));
+
+        assertThat(pendingJob.getStatus()).isEqualTo(AnalysisJobStatus.COMPLETED);
+        assertThat(pendingJob.getErrorMessage()).isNull();
+        verify(cacheVersionService, times(1)).incrementVersion(1L);
     }
 }

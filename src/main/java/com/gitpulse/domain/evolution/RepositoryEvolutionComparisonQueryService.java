@@ -6,6 +6,7 @@ import com.gitpulse.domain.evolution.dto.RepositoryEvolutionDeltaResponse;
 import com.gitpulse.domain.evolution.dto.RepositoryEvolutionPeriodResponse;
 import com.gitpulse.domain.evolution.dto.RepositoryEvolutionPeriodSummaryRow;
 import com.gitpulse.domain.repository.RepositoryJpaRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ public class RepositoryEvolutionComparisonQueryService {
         this.evolutionJpaRepository = Objects.requireNonNull(evolutionJpaRepository, "evolutionJpaRepository must not be null");
     }
 
+    @Cacheable(value = "repositoryEvolutionComparison", keyGenerator = "evolutionCacheKeyGenerator")
     public RepositoryEvolutionComparisonResponse compareRepositoryEvolution(
             Long repositoryId,
             Instant currentFrom,

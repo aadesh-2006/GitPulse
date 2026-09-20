@@ -7,6 +7,7 @@ import com.gitpulse.domain.evolution.dto.RepositoryEvolutionCompositionShares;
 import com.gitpulse.domain.evolution.dto.RepositoryEvolutionIntensityMetrics;
 import com.gitpulse.domain.evolution.dto.RepositoryEvolutionPeriodSummaryRow;
 import com.gitpulse.domain.repository.RepositoryJpaRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,7 @@ public class RepositoryEvolutionCompositionQueryService {
         this.evolutionJpaRepository = Objects.requireNonNull(evolutionJpaRepository, "evolutionJpaRepository must not be null");
     }
 
+    @Cacheable(value = "repositoryEvolutionComposition", keyGenerator = "evolutionCacheKeyGenerator")
     public RepositoryEvolutionCompositionResponse getEvolutionComposition(Long repositoryId, Instant from, Instant to) {
         Objects.requireNonNull(repositoryId, "repositoryId must not be null");
 

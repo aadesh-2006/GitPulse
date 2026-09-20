@@ -13,6 +13,8 @@ spring:
       ddl-auto: validate
     properties:
       hibernate.session_factory.statement_inspector: com.gitpulse.domain.evolution.H2TestStatementInspector
+  cache:
+    type: none
   kafka:
     listener:
       auto-startup: false

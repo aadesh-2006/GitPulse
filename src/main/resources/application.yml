@@ -30,6 +30,17 @@ spring:
         order_inserts: true
         order_updates: true
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: ${EVOLUTION_CACHE_TTL:5m}
+      cache-null-values: false
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:

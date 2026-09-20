@@ -11,6 +11,7 @@ import com.gitpulse.domain.contributor.ContributorAggregationService;
 import com.gitpulse.domain.contributor.dto.ContributorAggregationResult;
 import com.gitpulse.domain.contributorfile.RepositoryContributorFileAggregationService;
 import com.gitpulse.domain.contributorfile.dto.RepositoryContributorFileAggregationResult;
+import com.gitpulse.domain.evolution.cache.RepositoryEvolutionCacheVersionService;
 import com.gitpulse.domain.file.RepositoryFileAggregationService;
 import com.gitpulse.domain.file.dto.RepositoryFileAggregationResult;
 import com.gitpulse.domain.filechange.FileChangeIngestionService;
@@ -38,6 +39,7 @@ public class RepositoryAnalysisProcessor {
     private final RepositoryFileAggregationService repositoryFileAggregationService;
     private final RepositoryContributorFileAggregationService repositoryContributorFileAggregationService;
     private final RepositoryFileRiskMaterializationService repositoryFileRiskMaterializationService;
+    private final RepositoryEvolutionCacheVersionService cacheVersionService;
 
     public RepositoryAnalysisProcessor(AnalysisJobJpaRepository analysisJobJpaRepository,
                                        CommitIngestionService commitIngestionService,
@@ -46,7 +48,8 @@ public class RepositoryAnalysisProcessor {
                                        ContributorAggregationService contributorAggregationService,
                                        RepositoryFileAggregationService repositoryFileAggregationService,
                                        RepositoryContributorFileAggregationService repositoryContributorFileAggregationService,
-                                       RepositoryFileRiskMaterializationService repositoryFileRiskMaterializationService) {
+                                       RepositoryFileRiskMaterializationService repositoryFileRiskMaterializationService,
+                                       RepositoryEvolutionCacheVersionService cacheVersionService) {
         this.analysisJobJpaRepository = Objects.requireNonNull(analysisJobJpaRepository, "analysisJobJpaRepository must not be null");
         this.commitIngestionService = Objects.requireNonNull(commitIngestionService, "commitIngestionService must not be null");
         this.commitClassificationPipelineService = Objects.requireNonNull(commitClassificationPipelineService, "commitClassificationPipelineService must not be null");
@@ -55,6 +58,7 @@ public class RepositoryAnalysisProcessor {
         this.repositoryFileAggregationService = Objects.requireNonNull(repositoryFileAggregationService, "repositoryFileAggregationService must not be null");
         this.repositoryContributorFileAggregationService = Objects.requireNonNull(repositoryContributorFileAggregationService, "repositoryContributorFileAggregationService must not be null");
         this.repositoryFileRiskMaterializationService = Objects.requireNonNull(repositoryFileRiskMaterializationService, "repositoryFileRiskMaterializationService must not be null");
+        this.cacheVersionService = Objects.requireNonNull(cacheVersionService, "cacheVersionService must not be null");
     }
 
     public void processJob(Long jobId) {
@@ -151,6 +155,13 @@ public class RepositoryAnalysisProcessor {
             job.markCompleted();
             analysisJobJpaRepository.saveAndFlush(job);
             log.info("Analysis job [id={}, repo={}] transitioned to COMPLETED", jobId, repoFullName);
+
+            // Invalidate repository evolution cache by incrementing repository cache version
+            try {
+                cacheVersionService.incrementVersion(repositoryId);
+            } catch (Exception ex) {
+                log.warn("Failed to increment evolution cache version for repo {} after job completion: {}", repositoryId, ex.getMessage());
+            }
 
         } catch (Exception ex) {
             log.error("Error executing analysis for job [id={}]: {}", jobId, ex.getMessage(), ex);
