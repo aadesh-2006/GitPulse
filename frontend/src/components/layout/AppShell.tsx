@@ -73,20 +73,25 @@ export const AppShell: React.FC<AppShellProps> = ({
               </span>
             </button>
             <button
-              disabled
-              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-600 cursor-not-allowed"
-              title="Will be activated in P7 Chunk 4"
+              onClick={() => onTabChange('contributors')}
+              className={`flex items-center space-x-1 whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
+                activeTab === 'contributors'
+                  ? 'border-blue-500 text-blue-400 font-semibold'
+                  : 'border-transparent text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
             >
-              <span>Commits</span>
-              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">P7.4</span>
+              <span>Contributors & Ownership</span>
+              <span className="rounded bg-blue-950/80 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 text-[9px] font-semibold">
+                Active
+              </span>
             </button>
             <button
               disabled
               className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-600 cursor-not-allowed"
-              title="Will be activated in P7 Chunk 5"
+              title="Commits exploration module"
             >
-              <span>Contributors & Ownership</span>
-              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">P7.5</span>
+              <span>Commits</span>
+              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">Upcoming</span>
             </button>
           </nav>
         </div>
