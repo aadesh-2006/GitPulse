@@ -1,6 +1,7 @@
 package com.gitpulse.domain.evolution;
 
 import com.gitpulse.domain.evolution.dto.RepositoryEvolutionComparisonResponse;
+import com.gitpulse.domain.evolution.dto.RepositoryEvolutionCompositionResponse;
 import com.gitpulse.domain.evolution.dto.RepositoryEvolutionResponse;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -18,12 +19,15 @@ public class RepositoryEvolutionController {
 
     private final RepositoryEvolutionQueryService evolutionQueryService;
     private final RepositoryEvolutionComparisonQueryService comparisonQueryService;
+    private final RepositoryEvolutionCompositionQueryService compositionQueryService;
 
     public RepositoryEvolutionController(
             RepositoryEvolutionQueryService evolutionQueryService,
-            RepositoryEvolutionComparisonQueryService comparisonQueryService) {
+            RepositoryEvolutionComparisonQueryService comparisonQueryService,
+            RepositoryEvolutionCompositionQueryService compositionQueryService) {
         this.evolutionQueryService = evolutionQueryService;
         this.comparisonQueryService = comparisonQueryService;
+        this.compositionQueryService = compositionQueryService;
     }
 
     @GetMapping
@@ -46,6 +50,18 @@ public class RepositoryEvolutionController {
     ) {
         RepositoryEvolutionComparisonResponse response = comparisonQueryService.compareRepositoryEvolution(
                 repositoryId, currentFrom, currentTo, previousFrom, previousTo
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/composition")
+    public ResponseEntity<RepositoryEvolutionCompositionResponse> getEvolutionComposition(
+            @PathVariable Long repositoryId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to
+    ) {
+        RepositoryEvolutionCompositionResponse response = compositionQueryService.getEvolutionComposition(
+                repositoryId, from, to
         );
         return ResponseEntity.ok(response);
     }
