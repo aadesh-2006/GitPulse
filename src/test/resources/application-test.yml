@@ -11,6 +11,8 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate.session_factory.statement_inspector: com.gitpulse.domain.evolution.H2TestStatementInspector
   kafka:
     listener:
       auto-startup: false
