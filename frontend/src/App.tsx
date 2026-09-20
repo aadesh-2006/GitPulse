@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useRepositories } from './hooks/useRepositories';
-import { AppShell } from './components/layout/AppShell';
+import { AppShell, NavigationTab } from './components/layout/AppShell';
 import { RepositoryOverviewPage } from './pages/RepositoryOverviewPage';
+import { EvolutionPage } from './pages/EvolutionPage';
 
 export const App: React.FC = () => {
   const {
@@ -14,6 +15,8 @@ export const App: React.FC = () => {
     refreshRepositories,
   } = useRepositories();
 
+  const [activeTab, setActiveTab] = useState<NavigationTab>('overview');
+
   return (
     <AppShell
       repositories={repositories}
@@ -21,13 +24,21 @@ export const App: React.FC = () => {
       selectedRepositoryId={selectedRepositoryId}
       onSelectRepository={selectRepository}
       isLoadingRepositories={isLoading}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
     >
-      <RepositoryOverviewPage
-        repository={selectedRepository}
-        isLoadingRepository={isLoading && repositories.length === 0}
-        repositoryError={error}
-        onRefreshRepository={refreshRepositories}
-      />
+      {activeTab === 'overview' && (
+        <RepositoryOverviewPage
+          repository={selectedRepository}
+          isLoadingRepository={isLoading && repositories.length === 0}
+          repositoryError={error}
+          onRefreshRepository={refreshRepositories}
+        />
+      )}
+
+      {activeTab === 'evolution' && (
+        <EvolutionPage repository={selectedRepository} />
+      )}
     </AppShell>
   );
 };

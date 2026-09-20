@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { RepositoryResponse } from '../../types/repository';
 import { AppHeader } from './AppHeader';
+
+export type NavigationTab = 'overview' | 'evolution' | 'files' | 'commits' | 'contributors';
 
 interface AppShellProps {
   repositories: RepositoryResponse[];
@@ -8,10 +10,10 @@ interface AppShellProps {
   selectedRepositoryId: number | null;
   onSelectRepository: (id: number) => void;
   isLoadingRepositories: boolean;
+  activeTab: NavigationTab;
+  onTabChange: (tab: NavigationTab) => void;
   children: React.ReactNode;
 }
-
-export type NavigationTab = 'overview' | 'evolution' | 'files' | 'commits' | 'contributors';
 
 export const AppShell: React.FC<AppShellProps> = ({
   repositories,
@@ -19,10 +21,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   selectedRepositoryId,
   onSelectRepository,
   isLoadingRepositories,
+  activeTab,
+  onTabChange,
   children,
 }) => {
-  const [activeTab, setActiveTab] = useState<NavigationTab>('overview');
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
       <AppHeader
@@ -38,7 +40,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <nav className="-mb-px flex space-x-6 overflow-x-auto py-2">
             <button
-              onClick={() => setActiveTab('overview')}
+              onClick={() => onTabChange('overview')}
               className={`whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
                 activeTab === 'overview'
                   ? 'border-blue-500 text-blue-400 font-semibold'
@@ -48,36 +50,41 @@ export const AppShell: React.FC<AppShellProps> = ({
               Overview
             </button>
             <button
-              onClick={() => setActiveTab('overview')}
-              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-500 cursor-default"
-              title="Will be fully activated in upcoming P7 chunks"
+              onClick={() => onTabChange('evolution')}
+              className={`flex items-center space-x-1 whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
+                activeTab === 'evolution'
+                  ? 'border-blue-500 text-blue-400 font-semibold'
+                  : 'border-transparent text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
             >
               <span>Evolution</span>
-              <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[9px] text-slate-400">P7.2</span>
+              <span className="rounded bg-blue-950/80 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 text-[9px] font-semibold">
+                Active
+              </span>
             </button>
             <button
-              onClick={() => setActiveTab('overview')}
-              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-500 cursor-default"
-              title="Will be fully activated in upcoming P7 chunks"
+              disabled
+              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-600 cursor-not-allowed"
+              title="Will be activated in P7 Chunk 3"
             >
               <span>Files & Hotspots</span>
-              <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[9px] text-slate-400">P7.3</span>
+              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">P7.3</span>
             </button>
             <button
-              onClick={() => setActiveTab('overview')}
-              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-500 cursor-default"
-              title="Will be fully activated in upcoming P7 chunks"
+              disabled
+              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-600 cursor-not-allowed"
+              title="Will be activated in P7 Chunk 4"
             >
               <span>Commits</span>
-              <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[9px] text-slate-400">P7.4</span>
+              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">P7.4</span>
             </button>
             <button
-              onClick={() => setActiveTab('overview')}
-              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-500 cursor-default"
-              title="Will be fully activated in upcoming P7 chunks"
+              disabled
+              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-600 cursor-not-allowed"
+              title="Will be activated in P7 Chunk 5"
             >
               <span>Contributors & Ownership</span>
-              <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[9px] text-slate-400">P7.5</span>
+              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">P7.5</span>
             </button>
           </nav>
         </div>
