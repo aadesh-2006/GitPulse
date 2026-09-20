@@ -1,5 +1,7 @@
 package com.gitpulse.domain.evolution.cache;
 
+import com.gitpulse.config.observability.GitPulseMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,11 +28,15 @@ class RepositoryEvolutionCacheVersionServiceTest {
     @Mock
     private ValueOperations<String, String> valueOperations;
 
+    private SimpleMeterRegistry meterRegistry;
+    private GitPulseMetrics gitPulseMetrics;
     private RepositoryEvolutionCacheVersionService versionService;
 
     @BeforeEach
     void setUp() {
-        versionService = new RepositoryEvolutionCacheVersionService(stringRedisTemplate);
+        meterRegistry = new SimpleMeterRegistry();
+        gitPulseMetrics = new GitPulseMetrics(meterRegistry);
+        versionService = new RepositoryEvolutionCacheVersionService(stringRedisTemplate, gitPulseMetrics);
     }
 
     @Test
@@ -56,7 +62,7 @@ class RepositoryEvolutionCacheVersionServiceTest {
     }
 
     @Test
-    @DisplayName("getCurrentVersion should gracefully fall back to 1 when Redis fails on read")
+    @DisplayName("getCurrentVersion should gracefully fall back to 1 and record cache error metric when Redis fails on read")
     void getCurrentVersion_WhenRedisThrowsException_ShouldReturnOne() {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(anyString())).thenThrow(new RedisConnectionFailureException("Connection refused"));
@@ -64,6 +70,8 @@ class RepositoryEvolutionCacheVersionServiceTest {
         long version = versionService.getCurrentVersion(42L);
 
         assertThat(version).isEqualTo(1L);
+        assertThat(meterRegistry.counter(GitPulseMetrics.METRIC_CACHE_ERRORS, GitPulseMetrics.TAG_OPERATION, GitPulseMetrics.OPERATION_READ).count())
+                .isEqualTo(1.0);
     }
 
     @Test
@@ -89,7 +97,7 @@ class RepositoryEvolutionCacheVersionServiceTest {
     }
 
     @Test
-    @DisplayName("incrementVersion should return Optional.empty and not throw or return fake 1 on Redis failure")
+    @DisplayName("incrementVersion should return Optional.empty and record cache error metric on Redis failure")
     void incrementVersion_WhenRedisThrowsException_ShouldReturnEmptyAndNotFakeOne() {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.increment(anyString())).thenThrow(new RedisConnectionFailureException("Connection refused"));
@@ -97,6 +105,8 @@ class RepositoryEvolutionCacheVersionServiceTest {
         Optional<Long> result = versionService.incrementVersion(42L);
 
         assertThat(result).isEmpty();
+        assertThat(meterRegistry.counter(GitPulseMetrics.METRIC_CACHE_ERRORS, GitPulseMetrics.TAG_OPERATION, GitPulseMetrics.OPERATION_WRITE).count())
+                .isEqualTo(1.0);
     }
 
     @Test

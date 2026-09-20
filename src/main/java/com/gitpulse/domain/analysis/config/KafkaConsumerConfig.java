@@ -1,5 +1,6 @@
 package com.gitpulse.domain.analysis.config;
 
+import com.gitpulse.config.observability.GitPulseMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +26,9 @@ public class KafkaConsumerConfig {
     private boolean autoStartup;
 
     @Bean
-    public CommonErrorHandler kafkaErrorHandler(KafkaOperations<Object, Object> kafkaOperations) {
+    public CommonErrorHandler kafkaErrorHandler(
+            KafkaOperations<Object, Object> kafkaOperations,
+            GitPulseMetrics gitPulseMetrics) {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaOperations);
 
         // 3 retry attempts with 1-second interval before publishing to DLT
@@ -35,6 +38,9 @@ public class KafkaConsumerConfig {
         errorHandler.setRetryListeners((record, ex, deliveryAttempt) -> {
             log.warn("Retrying Kafka record consumption [topic={}, partition={}, offset={}, attempt={}] due to: {}",
                     record.topic(), record.partition(), record.offset(), deliveryAttempt, ex.getMessage());
+            if (gitPulseMetrics != null) {
+                gitPulseMetrics.incrementKafkaRetry();
+            }
         });
 
         return errorHandler;

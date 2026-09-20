@@ -1,5 +1,6 @@
 package com.gitpulse.config.cache;
 
+import com.gitpulse.config.observability.GitPulseMetrics;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -37,6 +38,16 @@ public class RedisCacheConfig implements CachingConfigurer {
 
     @Value("${spring.cache.redis.time-to-live:5m}")
     private Duration defaultTtl;
+
+    private final GitPulseMetrics gitPulseMetrics;
+
+    public RedisCacheConfig() {
+        this(null);
+    }
+
+    public RedisCacheConfig(GitPulseMetrics gitPulseMetrics) {
+        this.gitPulseMetrics = gitPulseMetrics;
+    }
 
     public ObjectMapper createRedisObjectMapper() {
         ObjectMapper objectMapper = new ObjectMapper();
@@ -80,24 +91,36 @@ public class RedisCacheConfig implements CachingConfigurer {
             public void handleCacheGetError(RuntimeException exception, Cache cache, Object key) {
                 log.warn("Redis cache GET error for key [{}] in cache [{}]: {}. Falling back to database.",
                         key, cache != null ? cache.getName() : "unknown", exception.getMessage());
+                if (gitPulseMetrics != null) {
+                    gitPulseMetrics.recordCacheError(GitPulseMetrics.OPERATION_READ);
+                }
             }
 
             @Override
             public void handleCachePutError(RuntimeException exception, Cache cache, Object key, Object value) {
                 log.warn("Redis cache PUT error for key [{}] in cache [{}]: {}. Continuing without caching.",
                         key, cache != null ? cache.getName() : "unknown", exception.getMessage());
+                if (gitPulseMetrics != null) {
+                    gitPulseMetrics.recordCacheError(GitPulseMetrics.OPERATION_WRITE);
+                }
             }
 
             @Override
             public void handleCacheEvictError(RuntimeException exception, Cache cache, Object key) {
                 log.warn("Redis cache EVICT error for key [{}] in cache [{}]: {}.",
                         key, cache != null ? cache.getName() : "unknown", exception.getMessage());
+                if (gitPulseMetrics != null) {
+                    gitPulseMetrics.recordCacheError(GitPulseMetrics.OPERATION_WRITE);
+                }
             }
 
             @Override
             public void handleCacheClearError(RuntimeException exception, Cache cache) {
                 log.warn("Redis cache CLEAR error for cache [{}]: {}.",
                         cache != null ? cache.getName() : "unknown", exception.getMessage());
+                if (gitPulseMetrics != null) {
+                    gitPulseMetrics.recordCacheError(GitPulseMetrics.OPERATION_WRITE);
+                }
             }
         };
     }

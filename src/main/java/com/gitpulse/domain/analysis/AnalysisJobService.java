@@ -1,6 +1,7 @@
 package com.gitpulse.domain.analysis;
 
 import com.gitpulse.common.exception.ResourceNotFoundException;
+import com.gitpulse.config.observability.GitPulseMetrics;
 import com.gitpulse.domain.analysis.dto.AnalysisJobResponse;
 import com.gitpulse.domain.analysis.event.AnalysisJobCreatedEvent;
 import com.gitpulse.domain.analysis.producer.AnalysisJobEventProducer;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class AnalysisJobService {
@@ -21,14 +23,17 @@ public class AnalysisJobService {
     private final AnalysisJobJpaRepository analysisJobJpaRepository;
     private final RepositoryService repositoryService;
     private final AnalysisJobEventProducer analysisJobEventProducer;
+    private final GitPulseMetrics gitPulseMetrics;
 
     public AnalysisJobService(
             AnalysisJobJpaRepository analysisJobJpaRepository,
             RepositoryService repositoryService,
-            AnalysisJobEventProducer analysisJobEventProducer) {
-        this.analysisJobJpaRepository = analysisJobJpaRepository;
-        this.repositoryService = repositoryService;
-        this.analysisJobEventProducer = analysisJobEventProducer;
+            AnalysisJobEventProducer analysisJobEventProducer,
+            GitPulseMetrics gitPulseMetrics) {
+        this.analysisJobJpaRepository = Objects.requireNonNull(analysisJobJpaRepository, "analysisJobJpaRepository must not be null");
+        this.repositoryService = Objects.requireNonNull(repositoryService, "repositoryService must not be null");
+        this.analysisJobEventProducer = Objects.requireNonNull(analysisJobEventProducer, "analysisJobEventProducer must not be null");
+        this.gitPulseMetrics = Objects.requireNonNull(gitPulseMetrics, "gitPulseMetrics must not be null");
     }
 
     @Transactional
@@ -39,6 +44,7 @@ public class AnalysisJobService {
         AnalysisJob saved = analysisJobJpaRepository.save(job);
 
         log.info("Created PENDING analysis job [id={}, repositoryId={}]", saved.getId(), repository.getId());
+        gitPulseMetrics.incrementJobCreated();
 
         // Publish event to Kafka for asynchronous pipeline execution
         AnalysisJobCreatedEvent event = AnalysisJobCreatedEvent.of(

@@ -228,10 +228,11 @@ class EvolutionCacheIntegrationTest {
         RepositoryContributorFileAggregationService contribFileAggService = mock(RepositoryContributorFileAggregationService.class);
         RepositoryFileRiskMaterializationService riskService = mock(RepositoryFileRiskMaterializationService.class);
         RepositoryEvolutionCacheVersionService versionService = mock(RepositoryEvolutionCacheVersionService.class);
+        com.gitpulse.config.observability.GitPulseMetrics metrics = new com.gitpulse.config.observability.GitPulseMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         RepositoryAnalysisProcessor processor = new RepositoryAnalysisProcessor(
                 jobRepo, commitService, classificationService, fileChangeService,
-                contributorService, fileAggService, contribFileAggService, riskService, versionService
+                contributorService, fileAggService, contribFileAggService, riskService, versionService, metrics
         );
 
         Long jobId = 100L;
@@ -271,10 +272,11 @@ class EvolutionCacheIntegrationTest {
         RepositoryContributorFileAggregationService contribFileAggService = mock(RepositoryContributorFileAggregationService.class);
         RepositoryFileRiskMaterializationService riskService = mock(RepositoryFileRiskMaterializationService.class);
         RepositoryEvolutionCacheVersionService versionService = mock(RepositoryEvolutionCacheVersionService.class);
+        com.gitpulse.config.observability.GitPulseMetrics metrics = new com.gitpulse.config.observability.GitPulseMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         RepositoryAnalysisProcessor processor = new RepositoryAnalysisProcessor(
                 jobRepo, commitService, classificationService, fileChangeService,
-                contributorService, fileAggService, contribFileAggService, riskService, versionService
+                contributorService, fileAggService, contribFileAggService, riskService, versionService, metrics
         );
 
         Long jobId = 102L;
@@ -315,10 +317,11 @@ class EvolutionCacheIntegrationTest {
         RepositoryContributorFileAggregationService contribFileAggService = mock(RepositoryContributorFileAggregationService.class);
         RepositoryFileRiskMaterializationService riskService = mock(RepositoryFileRiskMaterializationService.class);
         RepositoryEvolutionCacheVersionService versionService = mock(RepositoryEvolutionCacheVersionService.class);
+        com.gitpulse.config.observability.GitPulseMetrics metrics = new com.gitpulse.config.observability.GitPulseMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         RepositoryAnalysisProcessor processor = new RepositoryAnalysisProcessor(
                 jobRepo, commitService, classificationService, fileChangeService,
-                contributorService, fileAggService, contribFileAggService, riskService, versionService
+                contributorService, fileAggService, contribFileAggService, riskService, versionService, metrics
         );
 
         Long jobId = 101L;

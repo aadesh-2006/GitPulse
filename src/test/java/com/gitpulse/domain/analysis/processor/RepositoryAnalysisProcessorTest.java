@@ -72,6 +72,8 @@ class RepositoryAnalysisProcessorTest {
     @Mock
     private com.gitpulse.domain.evolution.cache.RepositoryEvolutionCacheVersionService cacheVersionService;
 
+    private io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry;
+    private com.gitpulse.config.observability.GitPulseMetrics gitPulseMetrics;
     private RepositoryAnalysisProcessor processor;
     private Repository sampleRepository;
     private AnalysisJob pendingJob;
@@ -79,6 +81,9 @@ class RepositoryAnalysisProcessorTest {
 
     @BeforeEach
     void setUp() {
+        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        gitPulseMetrics = new com.gitpulse.config.observability.GitPulseMetrics(meterRegistry);
+
         processor = new RepositoryAnalysisProcessor(
                 analysisJobJpaRepository,
                 commitIngestionService,
@@ -88,7 +93,8 @@ class RepositoryAnalysisProcessorTest {
                 repositoryFileAggregationService,
                 repositoryContributorFileAggregationService,
                 repositoryFileRiskMaterializationService,
-                cacheVersionService
+                cacheVersionService,
+                gitPulseMetrics
         );
 
         sampleRepository = new Repository("spring-projects", "spring-boot");
@@ -146,6 +152,18 @@ class RepositoryAnalysisProcessorTest {
         inOrder.verify(repositoryFileRiskMaterializationService).materializeFileRisks(1L, fixedJobCreatedAt);
 
         verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
+
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_ANALYSIS_JOBS, com.gitpulse.config.observability.GitPulseMetrics.TAG_STATUS, com.gitpulse.config.observability.GitPulseMetrics.STATUS_STARTED).count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_ANALYSIS_JOBS, com.gitpulse.config.observability.GitPulseMetrics.TAG_STATUS, com.gitpulse.config.observability.GitPulseMetrics.STATUS_COMPLETED).count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_INGESTION_COMMITS, com.gitpulse.config.observability.GitPulseMetrics.TAG_RESULT, com.gitpulse.config.observability.GitPulseMetrics.RESULT_INSERTED).count()).isEqualTo(45.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_INGESTION_COMMITS, com.gitpulse.config.observability.GitPulseMetrics.TAG_RESULT, com.gitpulse.config.observability.GitPulseMetrics.RESULT_DUPLICATE).count()).isEqualTo(5.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_INGESTION_FILE_CHANGES, com.gitpulse.config.observability.GitPulseMetrics.TAG_RESULT, com.gitpulse.config.observability.GitPulseMetrics.RESULT_INSERTED).count()).isEqualTo(120.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_RECORDS_MATERIALIZED, com.gitpulse.config.observability.GitPulseMetrics.TAG_TYPE, com.gitpulse.config.observability.GitPulseMetrics.TYPE_CONTRIBUTORS).count()).isEqualTo(5.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_RECORDS_MATERIALIZED, com.gitpulse.config.observability.GitPulseMetrics.TAG_TYPE, com.gitpulse.config.observability.GitPulseMetrics.TYPE_REPOSITORY_FILES).count()).isEqualTo(10.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_RECORDS_MATERIALIZED, com.gitpulse.config.observability.GitPulseMetrics.TAG_TYPE, com.gitpulse.config.observability.GitPulseMetrics.TYPE_CONTRIBUTOR_FILES).count()).isEqualTo(10.0);
+        assertThat(meterRegistry.counter(com.gitpulse.config.observability.GitPulseMetrics.METRIC_RECORDS_MATERIALIZED, com.gitpulse.config.observability.GitPulseMetrics.TAG_TYPE, com.gitpulse.config.observability.GitPulseMetrics.TYPE_RISK_SCORES).count()).isEqualTo(10.0);
+        assertThat(meterRegistry.timer(com.gitpulse.config.observability.GitPulseMetrics.METRIC_ANALYSIS_JOB_DURATION, com.gitpulse.config.observability.GitPulseMetrics.TAG_STATUS, com.gitpulse.config.observability.GitPulseMetrics.STATUS_COMPLETED).count()).isEqualTo(1L);
+        assertThat(gitPulseMetrics.getActiveJobsCount()).isEqualTo(0);
     }
 
     @Test

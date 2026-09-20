@@ -25,6 +25,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.gitpulse.config.observability.GitPulseMetrics;
+
 @ExtendWith(MockitoExtension.class)
 class AnalysisJobServiceTest {
 
@@ -36,6 +38,9 @@ class AnalysisJobServiceTest {
 
     @Mock
     private AnalysisJobEventProducer analysisJobEventProducer;
+
+    @Mock
+    private GitPulseMetrics gitPulseMetrics;
 
     @InjectMocks
     private AnalysisJobService analysisJobService;
@@ -68,6 +73,7 @@ class AnalysisJobServiceTest {
 
         verify(repositoryService).findEntityById(10L);
         verify(analysisJobJpaRepository).save(any(AnalysisJob.class));
+        verify(gitPulseMetrics).incrementJobCreated();
 
         ArgumentCaptor<AnalysisJobCreatedEvent> eventCaptor = ArgumentCaptor.forClass(AnalysisJobCreatedEvent.class);
         verify(analysisJobEventProducer).sendAnalysisJobCreatedEvent(eventCaptor.capture());
