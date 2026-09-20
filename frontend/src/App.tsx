@@ -4,6 +4,7 @@ import { AppShell, NavigationTab } from './components/layout/AppShell';
 import { RepositoryOverviewPage } from './pages/RepositoryOverviewPage';
 import { EvolutionPage } from './pages/EvolutionPage';
 import { FileIntelligencePage } from './pages/FileIntelligencePage';
+import { CommitIntelligencePage } from './pages/CommitIntelligencePage';
 import { ContributorIntelligencePage } from './pages/ContributorIntelligencePage';
 
 export const App: React.FC = () => {
@@ -44,6 +45,13 @@ export const App: React.FC = () => {
 
       {activeTab === 'files' && (
         <FileIntelligencePage repository={selectedRepository} />
+      )}
+
+      {activeTab === 'commits' && (
+        <CommitIntelligencePage
+          repository={selectedRepository}
+          onNavigateToEvolution={() => setActiveTab('evolution')}
+        />
       )}
 
       {activeTab === 'contributors' && (
