@@ -58,4 +58,22 @@ class ActuatorEndpointIntegrationTest {
                 .andExpect(jsonPath("$.name", is(GitPulseMetrics.METRIC_ANALYSIS_JOBS)))
                 .andExpect(jsonPath("$.availableTags[?(@.tag == 'status')]").exists());
     }
+
+    @Test
+    @DisplayName("GET /actuator/health/liveness should return UP status")
+    void testActuatorHealthLiveness() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("UP")));
+    }
+
+    @Test
+    @DisplayName("GET /actuator/health/readiness should return UP status")
+    void testActuatorHealthReadiness() throws Exception {
+        mockMvc.perform(get("/actuator/health/readiness")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("UP")));
+    }
 }

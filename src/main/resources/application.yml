@@ -52,6 +52,7 @@ logging:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         spring.json.add.type.headers: true
+        max.block.ms: ${KAFKA_PRODUCER_MAX_BLOCK_MS:5000}
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:gitpulse-analysis-group}
       auto-offset-reset: earliest
@@ -90,3 +91,8 @@ management:
       show-details: when_authorized
       probes:
         enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db,diskSpace
