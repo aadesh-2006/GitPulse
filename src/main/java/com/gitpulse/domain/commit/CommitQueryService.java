@@ -39,6 +39,10 @@ public class CommitQueryService {
             Instant to,
             Pageable pageable
     ) {
+        if (from != null && to != null && !from.isBefore(to)) {
+            throw new IllegalArgumentException("The 'from' timestamp must be strictly before the 'to' timestamp");
+        }
+
         if (!repositoryJpaRepository.existsById(repositoryId)) {
             throw new ResourceNotFoundException("Repository not found with id: " + repositoryId);
         }

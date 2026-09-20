@@ -1,4 +1,4 @@
-package com.gitpulse.domain.contributorfile;
+package com.gitpulse.domain.contributor;
 
 import com.gitpulse.common.exception.AppException;
 import org.springframework.data.domain.PageRequest;
@@ -9,53 +9,43 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-public final class RepositoryFileOwnershipSortValidator {
+public final class ContributorSortValidator {
 
     public static final int DEFAULT_PAGE_SIZE = 20;
     public static final int MAX_PAGE_SIZE = 100;
 
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
-            "filePath",
-            "contributorCount",
-            "totalRevisionsAcrossContributors",
-            "topContributorRevisionShare",
-            "topContributorId"
+            "totalCommits",
+            "totalAdditions",
+            "totalDeletions",
+            "totalChanges",
+            "firstCommittedAt",
+            "lastCommittedAt",
+            "id",
+            "contributorId"
     );
 
-    private RepositoryFileOwnershipSortValidator() {
+    private ContributorSortValidator() {
     }
 
     public static Pageable validateAndSanitize(Pageable pageable) {
         if (pageable == null) {
-            return PageRequest.of(0, DEFAULT_PAGE_SIZE, Sort.by(
-                    Sort.Order.desc("topContributorRevisionShare"),
-                    Sort.Order.asc("filePath")
-            ));
+            return PageRequest.of(0, DEFAULT_PAGE_SIZE, Sort.by(Sort.Direction.DESC, "totalCommits"));
         }
 
         int pageSize = Math.min(pageable.getPageSize(), MAX_PAGE_SIZE);
 
         if (pageable.getSort().isUnsorted()) {
-            return PageRequest.of(pageable.getPageNumber(), pageSize, Sort.by(
-                    Sort.Order.desc("topContributorRevisionShare"),
-                    Sort.Order.asc("filePath")
-            ));
+            return PageRequest.of(pageable.getPageNumber(), pageSize, Sort.by(Sort.Direction.DESC, "totalCommits"));
         }
 
         List<Sort.Order> sanitizedOrders = new ArrayList<>();
-        boolean containsFilePath = false;
         for (Sort.Order order : pageable.getSort()) {
             if (!ALLOWED_SORT_FIELDS.contains(order.getProperty())) {
                 throw new AppException("Invalid sort field: '" + order.getProperty() + "'. Allowed sort fields are: " + ALLOWED_SORT_FIELDS);
             }
-            sanitizedOrders.add(order);
-            if ("filePath".equals(order.getProperty())) {
-                containsFilePath = true;
-            }
-        }
-
-        if (!containsFilePath) {
-            sanitizedOrders.add(Sort.Order.asc("filePath"));
+            String property = "contributorId".equals(order.getProperty()) ? "contributor.id" : order.getProperty();
+            sanitizedOrders.add(new Sort.Order(order.getDirection(), property));
         }
 
         return PageRequest.of(pageable.getPageNumber(), pageSize, Sort.by(sanitizedOrders));

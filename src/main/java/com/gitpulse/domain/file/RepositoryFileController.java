@@ -63,6 +63,9 @@ public class RepositoryFileController {
         if (cleanPath != null && cleanPath.startsWith("/")) {
             cleanPath = cleanPath.substring(1);
         }
+        if (cleanPath == null || cleanPath.isBlank()) {
+            throw new com.gitpulse.common.exception.AppException("filePath must not be blank");
+        }
         RepositoryFileResponse response = repositoryFileQueryService.getRepositoryFileByPath(repositoryId, cleanPath);
         return ResponseEntity.ok(response);
     }

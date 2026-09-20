@@ -76,4 +76,28 @@ class ActuatorEndpointIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("UP")));
     }
+
+    @Test
+    @DisplayName("GET /actuator/env should return 404 Not Found (sensitive endpoint unexposed)")
+    void testActuatorEnvNotExposed() throws Exception {
+        mockMvc.perform(get("/actuator/env")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /actuator/beans should return 404 Not Found (sensitive endpoint unexposed)")
+    void testActuatorBeansNotExposed() throws Exception {
+        mockMvc.perform(get("/actuator/beans")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /actuator/configprops should return 404 Not Found (sensitive endpoint unexposed)")
+    void testActuatorConfigPropsNotExposed() throws Exception {
+        mockMvc.perform(get("/actuator/configprops")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+    }
 }

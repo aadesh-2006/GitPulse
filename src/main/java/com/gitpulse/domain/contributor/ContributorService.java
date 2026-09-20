@@ -30,7 +30,8 @@ public class ContributorService {
             throw new ResourceNotFoundException("Repository", "id", repositoryId);
         }
 
-        return repositoryContributorJpaRepository.findByRepositoryId(repositoryId, pageable)
+        Pageable sanitizedPageable = ContributorSortValidator.validateAndSanitize(pageable);
+        return repositoryContributorJpaRepository.findByRepositoryId(repositoryId, sanitizedPageable)
                 .map(RepositoryContributorResponse::fromEntity);
     }
 

@@ -11,6 +11,9 @@ import java.util.Set;
 
 public final class RepositoryContributorFileSortValidator {
 
+    public static final int DEFAULT_PAGE_SIZE = 20;
+    public static final int MAX_PAGE_SIZE = 100;
+
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
             "filePath",
             "totalRevisions",
@@ -27,11 +30,13 @@ public final class RepositoryContributorFileSortValidator {
 
     public static Pageable validateAndSanitize(Pageable pageable) {
         if (pageable == null) {
-            return PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "totalChurn"));
+            return PageRequest.of(0, DEFAULT_PAGE_SIZE, Sort.by(Sort.Direction.DESC, "totalChurn"));
         }
 
+        int pageSize = Math.min(pageable.getPageSize(), MAX_PAGE_SIZE);
+
         if (pageable.getSort().isUnsorted()) {
-            return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "totalChurn"));
+            return PageRequest.of(pageable.getPageNumber(), pageSize, Sort.by(Sort.Direction.DESC, "totalChurn"));
         }
 
         List<Sort.Order> sanitizedOrders = new ArrayList<>();
@@ -43,6 +48,6 @@ public final class RepositoryContributorFileSortValidator {
             sanitizedOrders.add(new Sort.Order(order.getDirection(), property));
         }
 
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(sanitizedOrders));
+        return PageRequest.of(pageable.getPageNumber(), pageSize, Sort.by(sanitizedOrders));
     }
 }
