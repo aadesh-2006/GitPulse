@@ -1,3 +1,7 @@
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [gitpulse,%X{correlationId:-}] [%t] %-40.40logger{39} : %m%n"
+
 spring:
   datasource:
     url: jdbc:h2:mem:gitpulse_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL

@@ -85,6 +85,7 @@ public class RepositoryAnalysisProcessor {
         boolean isRetry = job.getStatus() == AnalysisJobStatus.FAILED;
         Long repositoryId = job.getRepository().getId();
         String repoFullName = job.getRepository().getFullName();
+        long jobStartNanos = System.nanoTime();
 
         try {
             // Transition state: PENDING / FAILED -> RUNNING
@@ -97,64 +98,86 @@ public class RepositoryAnalysisProcessor {
             }
 
             // Stage 1: GitHub Commit Ingestion
+            log.info("Analysis job [id={}, repo={}] starting stage [COMMIT_INGESTION]", jobId, repoFullName);
+            long stage1Start = System.nanoTime();
             CommitIngestionResult commitResult = commitIngestionService.ingestCommits(repositoryId, jobId);
+            long stage1DurationMs = (System.nanoTime() - stage1Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] commit ingestion finished in {}ms: pages={}, received={}, inserted={}, duplicates={}",
-                    jobId, commitResult.getDurationMs(), commitResult.getPagesProcessed(), commitResult.getCommitsReceived(),
+            log.info("Analysis job [id={}, repo={}] completed stage [COMMIT_INGESTION] in {}ms: pages={}, received={}, inserted={}, duplicates={}",
+                    jobId, repoFullName, stage1DurationMs, commitResult.getPagesProcessed(), commitResult.getCommitsReceived(),
                     commitResult.getCommitsInserted(), commitResult.getDuplicatesEncountered());
 
             // Stage 2: Materialized Commit Classification
+            log.info("Analysis job [id={}, repo={}] starting stage [COMMIT_CLASSIFICATION]", jobId, repoFullName);
+            long stage2Start = System.nanoTime();
             CommitClassificationResult classificationResult = commitClassificationPipelineService.classifyCommits(repositoryId, jobId);
+            long stage2DurationMs = (System.nanoTime() - stage2Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] commit classification finished in {}ms: processed={}, classified={}",
-                    jobId, classificationResult.durationMs(), classificationResult.totalCommitsProcessed(),
+            log.info("Analysis job [id={}, repo={}] completed stage [COMMIT_CLASSIFICATION] in {}ms: processed={}, classified={}",
+                    jobId, repoFullName, stage2DurationMs, classificationResult.totalCommitsProcessed(),
                     classificationResult.classifiedCount());
 
             // Stage 3: GitHub File Change Ingestion
+            log.info("Analysis job [id={}, repo={}] starting stage [FILE_CHANGE_INGESTION]", jobId, repoFullName);
+            long stage3Start = System.nanoTime();
             FileChangeIngestionResult fileResult = fileChangeIngestionService.ingestFileChanges(repositoryId, jobId);
+            long stage3DurationMs = (System.nanoTime() - stage3Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] file-change ingestion finished in {}ms: commitsProcessed={}, commitsSkipped={}, filesReceived={}, filesInserted={}, duplicates={}",
-                    jobId, fileResult.getDurationMs(), fileResult.getCommitsProcessed(), fileResult.getCommitsSkipped(),
+            log.info("Analysis job [id={}, repo={}] completed stage [FILE_CHANGE_INGESTION] in {}ms: commitsProcessed={}, commitsSkipped={}, filesReceived={}, filesInserted={}, duplicates={}",
+                    jobId, repoFullName, stage3DurationMs, fileResult.getCommitsProcessed(), fileResult.getCommitsSkipped(),
                     fileResult.getFilesReceived(), fileResult.getFilesInserted(), fileResult.getDuplicatesEncountered());
 
             // Stage 4: Materialized Contributor Activity Attribution Aggregation
+            log.info("Analysis job [id={}, repo={}] starting stage [CONTRIBUTOR_AGGREGATION]", jobId, repoFullName);
+            long stage4Start = System.nanoTime();
             ContributorAggregationResult contributorResult = contributorAggregationService.aggregateContributors(repositoryId, jobId);
+            long stage4DurationMs = (System.nanoTime() - stage4Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] contributor aggregation finished in {}ms: aggregated={}, created={}, attributionsCreated={}, attributionsUpdated={}",
-                    jobId, contributorResult.getDurationMs(), contributorResult.getContributorsAggregated(),
+            log.info("Analysis job [id={}, repo={}] completed stage [CONTRIBUTOR_AGGREGATION] in {}ms: aggregated={}, created={}, attributionsCreated={}, attributionsUpdated={}",
+                    jobId, repoFullName, stage4DurationMs, contributorResult.getContributorsAggregated(),
                     contributorResult.getContributorsCreated(), contributorResult.getAttributionsCreated(),
                     contributorResult.getAttributionsUpdated());
 
             // Stage 5: Materialized Repository File Activity & Code Churn Aggregation
+            log.info("Analysis job [id={}, repo={}] starting stage [REPOSITORY_FILE_AGGREGATION]", jobId, repoFullName);
+            long stage5Start = System.nanoTime();
             RepositoryFileAggregationResult fileAggResult = repositoryFileAggregationService.aggregateRepositoryFiles(repositoryId);
+            long stage5DurationMs = (System.nanoTime() - stage5Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] repository file aggregation finished: totalFiles={}, created={}, updated={}, deleted={}",
-                    jobId, fileAggResult.totalFilesProcessed(), fileAggResult.createdCount(),
+            log.info("Analysis job [id={}, repo={}] completed stage [REPOSITORY_FILE_AGGREGATION] in {}ms: totalFiles={}, created={}, updated={}, deleted={}",
+                    jobId, repoFullName, stage5DurationMs, fileAggResult.totalFilesProcessed(), fileAggResult.createdCount(),
                     fileAggResult.updatedCount(), fileAggResult.deletedCount());
 
             // Stage 6: Materialized Contributor-File Aggregation
+            log.info("Analysis job [id={}, repo={}] starting stage [CONTRIBUTOR_FILE_AGGREGATION]", jobId, repoFullName);
+            long stage6Start = System.nanoTime();
             RepositoryContributorFileAggregationResult contributorFileResult =
                     repositoryContributorFileAggregationService.aggregateRepositoryContributorFiles(repositoryId);
+            long stage6DurationMs = (System.nanoTime() - stage6Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] contributor-file aggregation finished: processed={}, created={}, updated={}, unchanged={}, deleted={}",
-                    jobId, contributorFileResult.totalRowsProcessed(), contributorFileResult.createdCount(),
+            log.info("Analysis job [id={}, repo={}] completed stage [CONTRIBUTOR_FILE_AGGREGATION] in {}ms: processed={}, created={}, updated={}, unchanged={}, deleted={}",
+                    jobId, repoFullName, stage6DurationMs, contributorFileResult.totalRowsProcessed(), contributorFileResult.createdCount(),
                     contributorFileResult.updatedCount(), contributorFileResult.unchangedCount(), contributorFileResult.deletedCount());
 
             // Stage 7: Deterministic File Risk Score Materialization
+            log.info("Analysis job [id={}, repo={}] starting stage [FILE_RISK_MATERIALIZATION]", jobId, repoFullName);
             Instant referenceTime = Objects.requireNonNull(
                     job.getCreatedAt(),
                     "Analysis job createdAt must not be null before processing"
             );
+            long stage7Start = System.nanoTime();
             RepositoryFileRiskMaterializationResult riskResult =
                     repositoryFileRiskMaterializationService.materializeFileRisks(repositoryId, referenceTime);
+            long stage7DurationMs = (System.nanoTime() - stage7Start) / 1_000_000;
 
-            log.info("Analysis job [id={}] file risk materialization finished: totalProcessed={}, updated={}, unchanged={}",
-                    jobId, riskResult.totalFilesProcessed(), riskResult.updatedCount(), riskResult.unchangedCount());
+            log.info("Analysis job [id={}, repo={}] completed stage [FILE_RISK_MATERIALIZATION] in {}ms: totalProcessed={}, updated={}, unchanged={}",
+                    jobId, repoFullName, stage7DurationMs, riskResult.totalFilesProcessed(), riskResult.updatedCount(), riskResult.unchangedCount());
 
             // Transition state: RUNNING -> COMPLETED
             job.markCompleted();
             analysisJobJpaRepository.saveAndFlush(job);
-            log.info("Analysis job [id={}, repo={}] transitioned to COMPLETED", jobId, repoFullName);
+            long totalDurationMs = (System.nanoTime() - jobStartNanos) / 1_000_000;
+            log.info("Analysis job [id={}, repo={}] completed successfully in {}ms (transitioned to COMPLETED)", jobId, repoFullName, totalDurationMs);
 
             // Invalidate repository evolution cache by incrementing repository cache version
             try {
@@ -164,7 +187,8 @@ public class RepositoryAnalysisProcessor {
             }
 
         } catch (Exception ex) {
-            log.error("Error executing analysis for job [id={}]: {}", jobId, ex.getMessage(), ex);
+            long totalDurationMs = (System.nanoTime() - jobStartNanos) / 1_000_000;
+            log.error("Analysis job [id={}, repo={}] failed after {}ms: {}", jobId, repoFullName, totalDurationMs, ex.getMessage(), ex);
             job.markFailed(ex.getMessage());
             analysisJobJpaRepository.saveAndFlush(job);
             if (ex instanceof RuntimeException runtimeException) {

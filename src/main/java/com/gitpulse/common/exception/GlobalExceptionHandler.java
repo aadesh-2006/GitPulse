@@ -30,6 +30,7 @@ public class GlobalExceptionHandler {
         for (FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
             validationErrors.put(fieldError.getField(), fieldError.getDefaultMessage());
         }
+        log.warn("Validation failed on {}: {}", request.getRequestURI(), validationErrors);
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -46,7 +47,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleMethodArgumentTypeMismatchException(
             org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
             HttpServletRequest request) {
-        log.warn("Method argument type mismatch: {}", ex.getMessage());
+        log.warn("Method argument type mismatch on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -62,7 +63,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleResourceNotFoundException(
             ResourceNotFoundException ex,
             HttpServletRequest request) {
-        log.warn("Resource not found: {}", ex.getMessage());
+        log.warn("Resource not found on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
@@ -78,7 +79,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleDuplicateResourceException(
             DuplicateResourceException ex,
             HttpServletRequest request) {
-        log.warn("Duplicate resource conflict: {}", ex.getMessage());
+        log.warn("Duplicate resource conflict on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.CONFLICT.value(),
@@ -94,7 +95,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGitHubResourceNotFoundException(
             GitHubResourceNotFoundException ex,
             HttpServletRequest request) {
-        log.warn("GitHub resource not found: {}", ex.getMessage());
+        log.warn("GitHub resource not found on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.NOT_FOUND.value(),
@@ -110,7 +111,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGitHubRateLimitExceededException(
             GitHubRateLimitExceededException ex,
             HttpServletRequest request) {
-        log.warn("GitHub rate limit exceeded: {}", ex.getMessage());
+        log.warn("GitHub rate limit exceeded on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.TOO_MANY_REQUESTS.value(),
@@ -126,7 +127,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGitHubAuthenticationException(
             GitHubAuthenticationException ex,
             HttpServletRequest request) {
-        log.error("GitHub authentication error: {}", ex.getMessage());
+        log.error("GitHub authentication error on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_GATEWAY.value(),
@@ -142,7 +143,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGitHubApiException(
             GitHubApiException ex,
             HttpServletRequest request) {
-        log.error("GitHub API communication error: {}", ex.getMessage());
+        log.error("GitHub API communication error on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_GATEWAY.value(),
@@ -158,7 +159,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAppException(
             AppException ex,
             HttpServletRequest request) {
-        log.warn("Application exception: {}", ex.getMessage());
+        log.warn("Application exception on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -174,7 +175,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
             IllegalArgumentException ex,
             HttpServletRequest request) {
-        log.warn("Illegal argument exception: {}", ex.getMessage());
+        log.warn("Illegal argument exception on {}: {}", request.getRequestURI(), ex.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -190,7 +191,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex,
             HttpServletRequest request) {
-        log.error("Unhandled exception processing request: {}", request.getRequestURI(), ex);
+        log.error("Unhandled exception processing request: method={}, path={}", request.getMethod(), request.getRequestURI(), ex);
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
