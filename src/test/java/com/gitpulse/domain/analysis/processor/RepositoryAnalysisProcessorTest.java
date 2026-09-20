@@ -34,6 +34,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -434,23 +435,7 @@ class RepositoryAnalysisProcessorTest {
         verify(analysisJobJpaRepository, times(2)).saveAndFlush(pendingJob);
     }
 
-    @Test
-    @DisplayName("Idempotency: Should ignore duplicate event when job is already COMPLETED")
-    void processJob_AlreadyCompleted_Ignored() {
-        AnalysisJob completedJob = new AnalysisJob(sampleRepository, AnalysisJobStatus.COMPLETED);
-        ReflectionTestUtils.setField(completedJob, "id", 200L);
 
-        when(analysisJobJpaRepository.findWithRepositoryById(200L)).thenReturn(Optional.of(completedJob));
-
-        processor.processJob(200L);
-
-        assertThat(completedJob.getStatus()).isEqualTo(AnalysisJobStatus.COMPLETED);
-        verify(analysisJobJpaRepository, never()).saveAndFlush(any());
-        verify(commitIngestionService, never()).ingestCommits(any(), any());
-        verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
-        verify(repositoryContributorFileAggregationService, never()).aggregateRepositoryContributorFiles(any());
-        verify(repositoryFileRiskMaterializationService, never()).materializeFileRisks(any(), any());
-    }
 
     @Test
     @DisplayName("Idempotency: Should ignore duplicate event when job is already RUNNING")
@@ -471,21 +456,62 @@ class RepositoryAnalysisProcessorTest {
     }
 
     @Test
-    @DisplayName("Idempotency: Should ignore duplicate event when job is already FAILED")
-    void processJob_AlreadyFailed_Ignored() {
-        AnalysisJob failedJob = new AnalysisJob(sampleRepository, AnalysisJobStatus.FAILED);
+    @DisplayName("Retry: Should allow FAILED job to re-enter RUNNING state and complete pipeline on retry delivery")
+    void processJob_FailedJob_ReEntersRunningAndCompletesOnRetry() {
+        AnalysisJob failedJob = new AnalysisJob(sampleRepository, AnalysisJobStatus.RUNNING);
+        failedJob.markFailed("Previous network failure");
         ReflectionTestUtils.setField(failedJob, "id", 400L);
+        ReflectionTestUtils.setField(failedJob, "createdAt", fixedJobCreatedAt);
 
         when(analysisJobJpaRepository.findWithRepositoryById(400L)).thenReturn(Optional.of(failedJob));
+        when(analysisJobJpaRepository.saveAndFlush(any(AnalysisJob.class))).thenAnswer(i -> i.getArgument(0));
+        when(commitIngestionService.ingestCommits(1L, 400L))
+                .thenReturn(new CommitIngestionResult(1, 10, 10, 0, 10));
+        when(commitClassificationPipelineService.classifyCommits(1L, 400L))
+                .thenReturn(new CommitClassificationResult(10, 10, 10));
+        when(fileChangeIngestionService.ingestFileChanges(1L, 400L))
+                .thenReturn(new FileChangeIngestionResult(10, 0, 10, 10, 0, 10));
+        when(contributorAggregationService.aggregateContributors(1L, 400L))
+                .thenReturn(new ContributorAggregationResult(1, 1, 1, 0, 10));
+        when(repositoryFileAggregationService.aggregateRepositoryFiles(1L))
+                .thenReturn(new RepositoryFileAggregationResult(1L, 1, 1, 0, 0));
+        when(repositoryContributorFileAggregationService.aggregateRepositoryContributorFiles(1L))
+                .thenReturn(new RepositoryContributorFileAggregationResult(1L, 1, 1, 0, 0, 0));
+        when(repositoryFileRiskMaterializationService.materializeFileRisks(eq(1L), any(Instant.class)))
+                .thenReturn(new RepositoryFileRiskMaterializationResult(1L, 1, 1, 0));
 
         processor.processJob(400L);
 
-        assertThat(failedJob.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        assertThat(failedJob.getStatus()).isEqualTo(AnalysisJobStatus.COMPLETED);
+        assertThat(failedJob.getErrorMessage()).isNull();
+        verify(commitIngestionService).ingestCommits(1L, 400L);
+        verify(commitClassificationPipelineService).classifyCommits(1L, 400L);
+        verify(fileChangeIngestionService).ingestFileChanges(1L, 400L);
+        verify(contributorAggregationService).aggregateContributors(1L, 400L);
+        verify(repositoryFileAggregationService).aggregateRepositoryFiles(1L);
+        verify(repositoryContributorFileAggregationService).aggregateRepositoryContributorFiles(1L);
+        verify(repositoryFileRiskMaterializationService).materializeFileRisks(1L, fixedJobCreatedAt);
+        verify(cacheVersionService, times(1)).incrementVersion(1L);
+    }
+
+    @Test
+    @DisplayName("Idempotency: Should skip duplicate event when job is already COMPLETED and never increment cache version again")
+    void processJob_AlreadyCompleted_Ignored() {
+        AnalysisJob completedJob = new AnalysisJob(sampleRepository, AnalysisJobStatus.RUNNING);
+        completedJob.markCompleted();
+        ReflectionTestUtils.setField(completedJob, "id", 500L);
+
+        when(analysisJobJpaRepository.findWithRepositoryById(500L)).thenReturn(Optional.of(completedJob));
+
+        processor.processJob(500L);
+
+        assertThat(completedJob.getStatus()).isEqualTo(AnalysisJobStatus.COMPLETED);
         verify(analysisJobJpaRepository, never()).saveAndFlush(any());
         verify(commitIngestionService, never()).ingestCommits(any(), any());
         verify(repositoryFileAggregationService, never()).aggregateRepositoryFiles(any());
         verify(repositoryContributorFileAggregationService, never()).aggregateRepositoryContributorFiles(any());
         verify(repositoryFileRiskMaterializationService, never()).materializeFileRisks(any(), any());
+        verify(cacheVersionService, never()).incrementVersion(anyLong());
     }
 
     @Test

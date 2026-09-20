@@ -64,11 +64,13 @@ public class AnalysisJob {
     }
 
     public void markRunning() {
-        if (this.status != AnalysisJobStatus.PENDING) {
+        if (this.status != AnalysisJobStatus.PENDING && this.status != AnalysisJobStatus.FAILED) {
             throw new IllegalStateException(String.format("Invalid state transition: Cannot transition job [id=%s] from %s to RUNNING", id, status));
         }
         this.status = AnalysisJobStatus.RUNNING;
         this.startedAt = Instant.now();
+        this.completedAt = null;
+        this.errorMessage = null;
     }
 
     public void markCompleted() {

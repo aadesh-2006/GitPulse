@@ -82,19 +82,19 @@ public class RepositoryAnalysisProcessor {
             return;
         }
 
-        if (job.getStatus() == AnalysisJobStatus.FAILED) {
-            log.info("Analysis job [id={}] is in FAILED state. Skipping duplicate event processing.", jobId);
-            return;
-        }
-
+        boolean isRetry = job.getStatus() == AnalysisJobStatus.FAILED;
         Long repositoryId = job.getRepository().getId();
         String repoFullName = job.getRepository().getFullName();
 
         try {
-            // Transition state: PENDING -> RUNNING
+            // Transition state: PENDING / FAILED -> RUNNING
             job.markRunning();
             analysisJobJpaRepository.saveAndFlush(job);
-            log.info("Analysis job [id={}, repo={}] transitioned to RUNNING", jobId, repoFullName);
+            if (isRetry) {
+                log.info("Analysis job [id={}, repo={}] re-entering RUNNING state on Kafka retry attempt", jobId, repoFullName);
+            } else {
+                log.info("Analysis job [id={}, repo={}] transitioned to RUNNING", jobId, repoFullName);
+            }
 
             // Stage 1: GitHub Commit Ingestion
             CommitIngestionResult commitResult = commitIngestionService.ingestCommits(repositoryId, jobId);
