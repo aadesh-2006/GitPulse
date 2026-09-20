@@ -196,24 +196,30 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 
 ## Configuration & Environment Variables
 
-| Variable | Description | Default |
-|---|---|---|
-| `SERVER_PORT` | Port for Spring Boot server | `8080` |
-| `DB_HOST` | PostgreSQL host | `localhost` |
-| `DB_PORT` | PostgreSQL port | `5432` |
-| `DB_NAME` | PostgreSQL database name | `gitpulse` |
-| `DB_USERNAME` | PostgreSQL username | `gitpulse` |
-| `DB_PASSWORD` | PostgreSQL password | `gitpulse` |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker bootstrap list | `localhost:9092` |
-| `KAFKA_TOPIC_ANALYSIS_JOBS` | Kafka topic for analysis job creation events | `analysis-jobs` |
-| `KAFKA_TOPIC_ANALYSIS_JOBS_DLT` | Kafka topic for dead-letter analysis jobs | `analysis-jobs.DLT` |
-| `KAFKA_CONSUMER_GROUP` | Kafka consumer group ID for analysis workers | `gitpulse-analysis-group` |
-| `KAFKA_CONSUMER_CONCURRENCY` | Kafka consumer concurrency | `1` |
-| `GITHUB_TOKEN` | Optional GitHub Personal Access Token | *(empty)* |
-| `GITHUB_API_BASE_URL` | Base URL for GitHub REST API | `https://api.github.com` |
-| `GITHUB_CONNECT_TIMEOUT` | HTTP connection timeout | `5s` |
-| `GITHUB_READ_TIMEOUT` | HTTP response read timeout | `10s` |
-| `GITHUB_COMMIT_PAGE_SIZE` | Commits per page from GitHub API (1–100) | `30` |
+| Variable | Description | Default | Profile / Tier |
+|---|---|---|---|
+| `SERVER_PORT` | Port for Spring Boot server | `8080` | Application |
+| `DB_HOST` | PostgreSQL host | `localhost` | Infrastructure |
+| `DB_PORT` | PostgreSQL port | `5432` | Infrastructure |
+| `DB_NAME` | PostgreSQL database name | `gitpulse` | Infrastructure |
+| `DB_USERNAME` | PostgreSQL username | `gitpulse` | Infrastructure (Secret in Prod) |
+| `DB_PASSWORD` | PostgreSQL password | `gitpulse` | Infrastructure (Secret in Prod) |
+| `REDIS_HOST` | Redis cache host | `localhost` | Infrastructure |
+| `REDIS_PORT` | Redis cache port | `6379` | Infrastructure |
+| `EVOLUTION_CACHE_TTL` | Redis cache time-to-live | `5m` | Application Cache |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker bootstrap list | `localhost:9092` | Infrastructure |
+| `KAFKA_PRODUCER_MAX_BLOCK_MS` | Kafka producer timeout when buffering | `5000` | Infrastructure |
+| `KAFKA_TOPIC_ANALYSIS_JOBS` | Kafka topic for analysis job creation events | `analysis-jobs` | Messaging |
+| `KAFKA_TOPIC_ANALYSIS_JOBS_DLT` | Kafka topic for dead-letter analysis jobs | `analysis-jobs.DLT` | Messaging |
+| `KAFKA_CONSUMER_GROUP` | Kafka consumer group ID for analysis workers | `gitpulse-analysis-group` | Messaging |
+| `KAFKA_CONSUMER_CONCURRENCY` | Kafka consumer concurrency | `1` | Messaging |
+| `GITHUB_TOKEN` | Optional GitHub Personal Access Token | *(empty)* | External API (Secret) |
+| `GITHUB_API_BASE_URL` | Base URL for GitHub REST API | `https://api.github.com` | External API |
+| `GITHUB_CONNECT_TIMEOUT` | HTTP connection timeout | `5s` | External API |
+| `GITHUB_READ_TIMEOUT` | HTTP response read timeout | `10s` | External API |
+| `GITHUB_COMMIT_PAGE_SIZE` | Commits per page from GitHub API (1–100) | `30` | External API |
+| `VITE_API_PROXY_TARGET` | Frontend Vite dev server proxy target | `http://localhost:8080` | Frontend Dev |
+| `VITE_API_BASE_URL` | Frontend API client base URL | `/api/v1` | Frontend Client |
 
 ---
 
@@ -297,32 +303,75 @@ AnalysisJob (PENDING) ───[ Kafka Event ]───► AnalysisJobEventConsu
 - **Example**: `GET /api/v1/repositories/1/commits/42`
 - **Response**: `200 OK` (`CommitDetailResponse` with commit metadata and associated `List<CommitFileChangeResponse>`) or `404 Not Found`
 
+---
+
+## Observability & Health Endpoints
+
+GitPulse exposes production-ready operational telemetry and probe endpoints via Spring Boot Actuator:
+
+| Endpoint | Description | Expected Status / Value |
+|---|---|---|
+| `GET /actuator/health` | Overall aggregate health status | `{"status":"UP"}` |
+| `GET /actuator/health/liveness` | Kubernetes/container liveness probe | `{"status":"UP"}` |
+| `GET /actuator/health/readiness` | Readiness probe (checks DB, disk space) | `{"status":"UP"}` (503 if DB down) |
+| `GET /actuator/info` | Application metadata | `{"app":{"name":"gitpulse"}}` |
+| `GET /actuator/metrics` | Available Micrometer metric keys | List of metrics |
+| `GET /actuator/metrics/{name}` | Metric telemetry (e.g. `gitpulse.analysis.jobs`) | Value and tags |
 
 ---
 
 ## Local Development & Testing
 
 ### Prerequisites
-- Java 21+
-- Docker & Docker Compose (for PostgreSQL 16 & Kafka KRaft)
-- Maven 3.9+ (or use `./mvnw`)
+- **Java**: 21+
+- **Node.js**: 18+ (with npm)
+- **Docker & Docker Compose**: for PostgreSQL 16, Kafka KRaft, and Redis 7
+- **Maven**: 3.9+ (or use `./mvnw` / `.\mvnw.cmd`)
 
-### 1. Start Infrastructure (PostgreSQL & Apache Kafka)
+### 1. Start Infrastructure (PostgreSQL, Apache Kafka & Redis)
 ```bash
 docker compose up -d
 ```
 
-### 2. Run Test Suite (Offline / Embedded Kafka)
+### 2. Run Backend Test Suite (Isolated In-Memory Mode)
 ```bash
+# Unix/macOS
 ./mvnw clean test
+
+# Windows
+.\mvnw.cmd clean test
 ```
 
-### 3. Package Application
+### 3. Run Backend Application
 ```bash
-./mvnw clean package
-```
-
-### 4. Run Application
-```bash
+# Unix/macOS
 ./mvnw spring-boot:run
+
+# Windows
+.\mvnw.cmd spring-boot:run
+```
+
+### 4. Run Frontend Application (React + Vite)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The frontend will start at `http://localhost:3000` and proxy API calls to `http://localhost:8080`.
+
+### 5. Build Frontend for Production
+```bash
+cd frontend
+npm run build
+```
+
+### 6. Stop Infrastructure
+```bash
+docker compose down
+```
+
+### 7. Reset Development Database
+To purge persistent volumes and reset the development database cleanly:
+```bash
+docker compose down -v
 ```
