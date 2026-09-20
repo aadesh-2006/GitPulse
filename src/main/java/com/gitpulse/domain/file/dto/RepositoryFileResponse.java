@@ -19,6 +19,12 @@ public record RepositoryFileResponse(
         Instant firstModifiedAt,
         Instant lastModifiedAt,
         PrimaryContributorSummaryResponse primaryContributor,
+        double baselineScore,
+        double revisionFrequencyScore,
+        double churnScore,
+        double recencyScore,
+        double ownershipConcentrationScore,
+        double compositeScore,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -41,6 +47,12 @@ public record RepositoryFileResponse(
                 entity.getFirstModifiedAt(),
                 entity.getLastModifiedAt(),
                 PrimaryContributorSummaryResponse.fromEntity(entity.getPrimaryContributor()),
+                entity.getBaselineScore(),
+                entity.getRevisionFrequencyScore(),
+                entity.getChurnScore(),
+                entity.getRecencyScore(),
+                entity.getOwnershipConcentrationScore(),
+                entity.getCompositeScore(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

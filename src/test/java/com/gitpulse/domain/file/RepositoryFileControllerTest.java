@@ -58,6 +58,12 @@ class RepositoryFileControllerTest {
                 Instant.parse("2026-09-01T10:00:00Z"),
                 Instant.parse("2026-09-05T12:00:00Z"),
                 new PrimaryContributorSummaryResponse(10L, "alice@corp.com", "alice", "Alice", "https://avatar.com/1"),
+                0.50,
+                0.50,
+                0.50,
+                0.50,
+                0.50,
+                0.50,
                 Instant.parse("2026-09-01T10:00:00Z"),
                 Instant.parse("2026-09-05T12:00:00Z")
         );
@@ -92,7 +98,11 @@ class RepositoryFileControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk());
 
-        verify(repositoryFileQueryService).getRepositoryFiles(eq(1L), any(), any(), any(Pageable.class));
+        mockMvc.perform(get("/api/v1/repositories/1/files?sort=compositeScore,desc")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        verify(repositoryFileQueryService, org.mockito.Mockito.times(2)).getRepositoryFiles(eq(1L), any(), any(), any(Pageable.class));
     }
 
     @Test

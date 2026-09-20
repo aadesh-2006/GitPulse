@@ -51,24 +51,26 @@ export const AppShell: React.FC<AppShellProps> = ({
             </button>
             <button
               onClick={() => onTabChange('evolution')}
-              className={`flex items-center space-x-1 whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
+              className={`whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
                 activeTab === 'evolution'
                   ? 'border-blue-500 text-blue-400 font-semibold'
                   : 'border-transparent text-slate-400 hover:border-slate-700 hover:text-slate-200'
               }`}
             >
-              <span>Evolution</span>
+              Evolution
+            </button>
+            <button
+              onClick={() => onTabChange('files')}
+              className={`flex items-center space-x-1 whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
+                activeTab === 'files'
+                  ? 'border-blue-500 text-blue-400 font-semibold'
+                  : 'border-transparent text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <span>Files & Hotspots</span>
               <span className="rounded bg-blue-950/80 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 text-[9px] font-semibold">
                 Active
               </span>
-            </button>
-            <button
-              disabled
-              className="group flex items-center space-x-1 whitespace-nowrap border-b-2 border-transparent py-2 px-1 text-xs sm:text-sm font-medium text-slate-600 cursor-not-allowed"
-              title="Will be activated in P7 Chunk 3"
-            >
-              <span>Files & Hotspots</span>
-              <span className="rounded bg-slate-900 px-1.5 py-0.2 text-[9px] text-slate-500">P7.3</span>
             </button>
             <button
               disabled

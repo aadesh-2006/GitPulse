@@ -3,6 +3,7 @@ import { useRepositories } from './hooks/useRepositories';
 import { AppShell, NavigationTab } from './components/layout/AppShell';
 import { RepositoryOverviewPage } from './pages/RepositoryOverviewPage';
 import { EvolutionPage } from './pages/EvolutionPage';
+import { FileIntelligencePage } from './pages/FileIntelligencePage';
 
 export const App: React.FC = () => {
   const {
@@ -38,6 +39,10 @@ export const App: React.FC = () => {
 
       {activeTab === 'evolution' && (
         <EvolutionPage repository={selectedRepository} />
+      )}
+
+      {activeTab === 'files' && (
+        <FileIntelligencePage repository={selectedRepository} />
       )}
     </AppShell>
   );

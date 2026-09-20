@@ -16,7 +16,9 @@ public final class RepositoryFileSortValidator {
             "totalDeletions",
             "totalChurn",
             "firstModifiedAt",
-            "lastModifiedAt"
+            "lastModifiedAt",
+            "compositeScore",
+            "baselineScore"
     );
 
     private RepositoryFileSortValidator() {

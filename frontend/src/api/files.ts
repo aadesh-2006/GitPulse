@@ -29,8 +29,12 @@ export const fileApi = {
     filePath: string
   ): Promise<RepositoryFileResponse> {
     const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+    const encodedPath = cleanPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
     return apiClient.get<RepositoryFileResponse>(
-      `/repositories/${repositoryId}/files/${encodeURIComponent(cleanPath)}`
+      `/repositories/${repositoryId}/files/${encodedPath}`
     );
   },
 };

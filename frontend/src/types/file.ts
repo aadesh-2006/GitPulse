@@ -21,6 +21,12 @@ export interface RepositoryFileResponse {
   firstModifiedAt: string;
   lastModifiedAt: string;
   primaryContributor: PrimaryContributorSummaryResponse | null;
+  baselineScore: number;
+  revisionFrequencyScore: number;
+  churnScore: number;
+  recencyScore: number;
+  ownershipConcentrationScore: number;
+  compositeScore: number;
   createdAt: string;
   updatedAt: string;
 }
