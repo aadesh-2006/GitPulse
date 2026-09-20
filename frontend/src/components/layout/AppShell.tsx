@@ -2,7 +2,7 @@ import React from 'react';
 import { RepositoryResponse } from '../../types/repository';
 import { AppHeader } from './AppHeader';
 
-export type NavigationTab = 'overview' | 'evolution' | 'files' | 'commits' | 'contributors';
+export type NavigationTab = 'overview' | 'evolution' | 'files' | 'commits' | 'contributors' | 'risk';
 
 interface AppShellProps {
   repositories: RepositoryResponse[];
@@ -94,6 +94,19 @@ export const AppShell: React.FC<AppShellProps> = ({
               }`}
             >
               <span>Contributors & Ownership</span>
+              <span className="rounded bg-blue-950/80 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 text-[9px] font-semibold">
+                Active
+              </span>
+            </button>
+            <button
+              onClick={() => onTabChange('risk')}
+              className={`flex items-center space-x-1 whitespace-nowrap border-b-2 py-2 px-1 text-xs sm:text-sm font-medium transition-colors ${
+                activeTab === 'risk'
+                  ? 'border-blue-500 text-blue-400 font-semibold'
+                  : 'border-transparent text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <span>Risk & Stability</span>
               <span className="rounded bg-blue-950/80 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 text-[9px] font-semibold">
                 Active
               </span>

@@ -6,6 +6,7 @@ import { EvolutionPage } from './pages/EvolutionPage';
 import { FileIntelligencePage } from './pages/FileIntelligencePage';
 import { CommitIntelligencePage } from './pages/CommitIntelligencePage';
 import { ContributorIntelligencePage } from './pages/ContributorIntelligencePage';
+import { RepositoryRiskPage } from './pages/RepositoryRiskPage';
 
 export const App: React.FC = () => {
   const {
@@ -56,6 +57,10 @@ export const App: React.FC = () => {
 
       {activeTab === 'contributors' && (
         <ContributorIntelligencePage repository={selectedRepository} />
+      )}
+
+      {activeTab === 'risk' && (
+        <RepositoryRiskPage repository={selectedRepository} />
       )}
     </AppShell>
   );
