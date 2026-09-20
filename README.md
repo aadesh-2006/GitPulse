@@ -2,20 +2,22 @@
 
 GitPulse is a GitHub Repository Activity Intelligence platform that analyzes repository history to understand code evolution, hotspots, contributor activity, and engineering-risk indicators.
 
-> **Note**: GitPulse is being developed incrementally. This repository contains the backend foundation (Step 1), domain models and Flyway migrations for Repositories and Analysis Jobs (Step 2), GitHub REST API Integration Foundation (Step 3), Asynchronous Analysis Job Pipeline with Apache Kafka (Step 4), GitHub Commit Ingestion & Pagination (Step 5), GitHub File-Change Ingestion (Step 6), Contributor Domain & Activity Attribution (Step 7), File-Level Activity & Churn Aggregation (Step 8), and Deterministic Commit Classification & Intelligence (Step 9). Asynchronous commit history ingestion, deterministic commit classification, commit-detail file-change tracking, materialized contributor attributions, repository file churn read models, and REST query endpoints are fully implemented; code risk scoring and Redis caching belong to future milestones.
+> **Status**: Production-ready end-to-end implementation including asynchronous Kafka analysis pipelines, deterministic commit classification, contributor attributions, file-level churn aggregation, multi-dimensional risk modeling, Redis evolution caching, Spring Boot Actuator telemetry, and a React + Vite analytics dashboard.
 
 ---
 
 ## Technology Stack
 
-- **Runtime & Language**: Java 21
-- **Framework**: Spring Boot 3.3.4 (Spring Web, Spring Data JPA, Spring Validation, Spring Boot Actuator, Spring Kafka)
-- **Event Streaming & Message Broker**: Apache Kafka (KRaft mode) via `spring-kafka`
+- **Runtime & Language**: Java 21, TypeScript 5.6
+- **Backend Framework**: Spring Boot 3.3.4 (Spring Web, Spring Data JPA, Spring Validation, Spring Boot Actuator, Spring Kafka, Spring Data Redis)
+- **Frontend Framework**: React 18, Vite 5, Recharts 3
+- **Event Streaming & Message Broker**: Apache Kafka 3.8.0 (KRaft mode) via `spring-kafka`
+- **Cache Layer**: Redis 7 Alpine (Lettuce driver with automatic database fallback)
 - **HTTP Client**: Spring 6 `RestClient` (Synchronous HTTP Client with configurable timeouts, rate-limit handling, Link header pagination, and commit-detail inspection)
 - **Database & Migration**: PostgreSQL 16, Flyway Migrations (`V1`, `V2`, `V3`, `V4`, `V5`, `V6`, `V7`)
 - **Connection Pool**: HikariCP (with Hibernate JDBC Batching)
-- **Build Tool**: Maven (with Maven Wrapper `./mvnw`)
-- **Infrastructure**: Docker & Docker Compose (PostgreSQL 16 Alpine, Apache Kafka 3.8.0 KRaft)
+- **Build Tool**: Maven (with Maven Wrapper `./mvnw`), npm
+- **Infrastructure**: Docker & Docker Compose (PostgreSQL 16 Alpine, Apache Kafka 3.8.0 KRaft, Redis 7 Alpine)
 - **Testing**: Spring Boot Test, Embedded Kafka (`@EmbeddedKafka`), MockMvc, MockRestServiceServer, JUnit 5, Mockito, H2 (isolated in-memory test mode)
 
 ---
@@ -375,3 +377,39 @@ To purge persistent volumes and reset the development database cleanly:
 ```bash
 docker compose down -v
 ```
+
+---
+
+## End-to-End Demo Walkthrough
+
+1. **Start Infrastructure**: Run `docker compose up -d` to spin up PostgreSQL, Kafka KRaft, and Redis.
+2. **Start Backend**: Launch `./mvnw spring-boot:run` (defaults to port `8080`).
+3. **Start Frontend**: In another terminal, run `cd frontend && npm install && npm run dev` (opens `http://localhost:3000`).
+4. **Register a Repository**:
+   - In the frontend header, click **Register Repository** or POST to `/api/v1/repositories`:
+   ```bash
+   curl -X POST http://localhost:8080/api/v1/repositories \
+     -H "Content-Type: application/json" \
+     -d '{"owner": "octocat", "name": "Hello-World"}'
+   ```
+5. **Trigger Historical Analysis**:
+   - In the frontend, click **Run Analysis** or POST to `/api/v1/repositories/{id}/analysis-jobs`:
+   ```bash
+   curl -X POST http://localhost:8080/api/v1/repositories/1/analysis-jobs
+   ```
+6. **Explore Intelligence Dashboards**:
+   - **Overview**: Repository stats, sync status, and analysis job history.
+   - **Evolution**: Activity trends, intensity metrics, classification breakdowns, and period comparisons.
+   - **Files & Hotspots**: Code churn, revision frequencies, primary contributors, and hotspots.
+   - **Commits**: Classified engineering history, author filters, and file changes per commit.
+   - **Contributors & Ownership**: Contributor churn attributions, file ownership shares, and top contributors.
+   - **Risk & Stability**: Multi-dimensional composite risk vs baseline revision-frequency scores.
+
+---
+
+## Known Limitations
+
+- **GitHub API Rate Limits**: Unauthenticated GitHub API calls are limited by GitHub to 60 requests/hour per IP. For ingesting larger repositories, set `GITHUB_TOKEN` in `.env` (5,000 requests/hour).
+- **Per-Commit File Limit**: The GitHub REST API commit-detail endpoint returns a maximum of 300 changed files per commit. Large bulk commits exceeding 300 files capture the first 300 files.
+- **Docker Requirement for Local Daemons**: Running full asynchronous analysis locally requires Docker/Compose for Kafka, PostgreSQL, and Redis. The automated test suite (`./mvnw test`) runs fully offline in-memory using Embedded Kafka and H2.
+- **Authentication**: GitPulse currently operates in single-tenant local/internal mode without user authentication or RBAC.
