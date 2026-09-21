@@ -55,4 +55,7 @@ public interface CommitJpaRepository extends JpaRepository<Commit, Long> {
             @Param("to") Instant to,
             Pageable pageable
     );
+
+    @Query("SELECT MAX(c.committedAt) FROM Commit c WHERE c.repository.id = :repositoryId")
+    Instant findLatestCommittedAtByRepositoryId(@Param("repositoryId") Long repositoryId);
 }

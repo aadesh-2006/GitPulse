@@ -13,4 +13,6 @@ public interface RepositoryJpaRepository extends JpaRepository<Repository, Long>
     Optional<Repository> findByOwnerAndName(String owner, String name);
 
     Optional<Repository> findByFullName(String fullName);
+
+    Optional<Repository> findByFullNameIgnoreCase(String fullName);
 }

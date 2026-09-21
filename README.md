@@ -407,6 +407,48 @@ docker compose down -v
 
 ---
 
+## Research Benchmark Harness (Hypothesis Evaluation)
+
+GitPulse includes an isolated temporal benchmark and evaluation framework (`com.gitpulse.benchmark`) designed to test the core analytical hypothesis:
+
+> **Hypothesis**: Does a multi-dimensional file hotspot score (revision frequency + code churn + exponential recency decay + ownership concentration) provide superior predictive signal for future repository activity compared to revision frequency alone?
+
+### Temporal Evaluation Methodology
+
+- **Historical Window \((-\infty, T_{\text{cutoff}}]\)**: Reconstructs historical metrics (revisions, churn, recency, top contributor ownership share, and repository normalization maxima) using only commits committed on or before \(T_{\text{cutoff}}\).
+- **Future Evaluation Window \((T_{\text{cutoff}}, T_{\text{cutoff}} + \text{horizon}]\)**: Observes future ground-truth activity (whether the file was modified, future revision count, future churn, and future distinct contributors) strictly after \(T_{\text{cutoff}}\).
+- **Anti-Leakage Guarantees**: Benchmark queries aggregate from immutable source logs (`commits`, `file_changes`) up to \(T_{\text{cutoff}}\) and never read present-day materialized read models (`repository_files`, `repository_contributor_files`).
+
+### Evaluated Signals & Ablation Set
+
+1. **Baseline**: Single-dimensional score based purely on historical revision frequency.
+2. **Composite Hotspot**: Multi-dimensional score (\(0.30 \times \text{revisions} + 0.30 \times \text{churn} + 0.20 \times \text{recency} + 0.20 \times \text{ownership}\)).
+3. **Ablation Signals**: Individual isolated components (`revisionFrequency`, `churn`, `recency`, `ownershipConcentration`).
+
+### Evaluation Metrics
+
+- **Precision@K, Recall@K, HitRate@K** (\(K \in \{5, 10, 20\}\)): Precision and recall of capturing files that experience future modifications.
+- **Spearman Rank Correlation (\(\rho\))**: Correlation between predicted rank scores and observed future revision counts / code churn.
+- **ROC-AUC**: Area Under the Receiver Operating Characteristic curve for classifying future-modified files via the Mann-Whitney U statistic.
+
+### Running the Benchmark
+
+Run the benchmark CLI on any ingested repository:
+
+```bash
+# Run benchmark with custom cutoff and horizon
+./mvnw spring-boot:run \
+  -Dspring-boot.run.arguments="--gitpulse.benchmark.enabled=true --benchmark.repo=octocat/Hello-World --benchmark.cutoff=2024-01-01T00:00:00Z --benchmark.horizonDays=90"
+
+# Run with defaults (defaults to 90 days before latest commit)
+./mvnw spring-boot:run \
+  -Dspring-boot.run.arguments="--gitpulse.benchmark.enabled=true --benchmark.repo=octocat/Hello-World"
+```
+
+The runner prints an ASCII comparative performance table, hypothesis evaluation deltas (\(\Delta\)), and structured JSON output for downstream analysis.
+
+---
+
 ## Known Limitations
 
 - **GitHub API Rate Limits**: Unauthenticated GitHub API calls are limited by GitHub to 60 requests/hour per IP. For ingesting larger repositories, set `GITHUB_TOKEN` in `.env` (5,000 requests/hour).
