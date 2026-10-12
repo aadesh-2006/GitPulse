@@ -178,6 +178,101 @@ class BenchmarkAntiLeakageIntegrationTest {
                 .isCloseTo(composite.rocAreaUnderCurve() - baseline.rocAreaUnderCurve(), within(1e-9));
     }
 
+    @Test
+    @DisplayName("Empty Historical Population: Cutoff before any repository commits yields zero historical files and safe zeroed metrics")
+    void emptyHistoricalPopulationProducesSafeMetrics() {
+        // Create commits only in the FUTURE window after cutoff
+        Instant tFut = cutoff.plus(Duration.ofDays(5));
+        createCommit("sha-fut-1", "Alice", "alice@example.com", tFut, "src/FutureOnly.java", 100, 20);
+
+        BenchmarkResult result = benchmarkService.evaluateRepository(repo.getId(), cutoff, horizon);
+
+        assertThat(result.totalHistoricalFiles()).isEqualTo(0);
+        assertThat(result.totalActiveFutureFiles()).isEqualTo(1);
+        assertThat(result.futureChangedHistoricalFiles()).isEqualTo(0);
+        assertThat(result.newFilesIntroducedInFuture()).isEqualTo(1);
+
+        BenchmarkRankingMetrics baseline = result.baselineMetrics();
+        BenchmarkRankingMetrics composite = result.compositeMetrics();
+
+        // Verify metrics are safely bounded and do not return NaN or Infinity
+        for (BenchmarkRankingMetrics m : List.of(baseline, composite)) {
+            assertThat(m.precisionAt5()).isEqualTo(0.0);
+            assertThat(m.precisionAt10()).isEqualTo(0.0);
+            assertThat(m.precisionAt20()).isEqualTo(0.0);
+            assertThat(m.recallAt5()).isEqualTo(0.0);
+            assertThat(m.recallAt10()).isEqualTo(0.0);
+            assertThat(m.recallAt20()).isEqualTo(0.0);
+            assertThat(m.hitRateAt5()).isEqualTo(0.0);
+            assertThat(m.hitRateAt10()).isEqualTo(0.0);
+            assertThat(m.hitRateAt20()).isEqualTo(0.0);
+            assertThat(m.spearmanCorrelationRevisions()).isEqualTo(0.0);
+            assertThat(m.spearmanCorrelationChurn()).isEqualTo(0.0);
+            assertThat(m.rocAreaUnderCurve()).isEqualTo(0.5);
+        }
+
+        assertThat(result.comparisonSummary().rocAucDelta()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("Empty Future Window: Inactivity during horizon yields zero changed historical files and safe zeroed metrics")
+    void emptyFutureWindowProducesZeroChangedFilesAndSafeMetrics() {
+        // Create historical commits prior to cutoff
+        Instant tHist = cutoff.minus(Duration.ofDays(10));
+        createCommit("sha-hist-1", "Alice", "alice@example.com", tHist, "src/File1.java", 50, 10);
+        createCommit("sha-hist-2", "Bob", "bob@example.com", tHist, "src/File2.java", 30, 5);
+
+        // No commits created in (cutoff, cutoff + horizon]
+
+        BenchmarkResult result = benchmarkService.evaluateRepository(repo.getId(), cutoff, horizon);
+
+        assertThat(result.totalHistoricalFiles()).isEqualTo(2);
+        assertThat(result.totalActiveFutureFiles()).isEqualTo(0);
+        assertThat(result.futureChangedHistoricalFiles()).isEqualTo(0);
+        assertThat(result.newFilesIntroducedInFuture()).isEqualTo(0);
+
+        BenchmarkRankingMetrics baseline = result.baselineMetrics();
+        BenchmarkRankingMetrics composite = result.compositeMetrics();
+
+        // With zero future positives, precision and recall should safely evaluate to 0.0 and ROC-AUC to 0.5
+        for (BenchmarkRankingMetrics m : List.of(baseline, composite)) {
+            assertThat(m.precisionAt5()).isEqualTo(0.0);
+            assertThat(m.recallAt5()).isEqualTo(0.0);
+            assertThat(m.hitRateAt5()).isEqualTo(0.0);
+            assertThat(m.rocAreaUnderCurve()).isEqualTo(0.5);
+        }
+    }
+
+    @Test
+    @DisplayName("Deterministic Tie-Breaking: Identical scores break ties by historical revisions desc, then file path asc")
+    void deterministicTieBreakingRanksConsistently() {
+        // Create 3 files with identical score dimensions (same revisions=1, churn=50, timestamp=tHist, single author)
+        Instant tHist = cutoff.minus(Duration.ofDays(10));
+        createCommit("sha-t1", "Alice", "alice@example.com", tHist, "src/c/FileZ.java", 40, 10);
+        createCommit("sha-t2", "Alice", "alice@example.com", tHist, "src/b/FileM.java", 40, 10);
+        createCommit("sha-t3", "Alice", "alice@example.com", tHist, "src/a/FileA.java", 40, 10);
+
+        // Also add FileA second revision to give it more historical revisions
+        Instant tHist2 = cutoff.minus(Duration.ofDays(9));
+        createCommit("sha-t4", "Alice", "alice@example.com", tHist2, "src/a/FileA.java", 0, 0);
+
+        // Future changes for FileM
+        Instant tFut = cutoff.plus(Duration.ofDays(2));
+        createCommit("sha-tf1", "Alice", "alice@example.com", tFut, "src/b/FileM.java", 10, 5);
+
+        BenchmarkResult result = benchmarkService.evaluateRepository(repo.getId(), cutoff, horizon);
+
+        assertThat(result.totalHistoricalFiles()).isEqualTo(3);
+        assertThat(result.futureChangedHistoricalFiles()).isEqualTo(1);
+        assertThat(result.totalActiveFutureFiles()).isEqualTo(1);
+
+        // Run evaluation multiple times to verify deterministic stability
+        BenchmarkResult repeatedResult = benchmarkService.evaluateRepository(repo.getId(), cutoff, horizon);
+        assertThat(repeatedResult.baselineMetrics().precisionAt5()).isEqualTo(result.baselineMetrics().precisionAt5());
+        assertThat(repeatedResult.compositeMetrics().precisionAt5()).isEqualTo(result.compositeMetrics().precisionAt5());
+        assertThat(repeatedResult.baselineMetrics().rocAreaUnderCurve()).isEqualTo(result.baselineMetrics().rocAreaUnderCurve());
+    }
+
     private void createCommit(String sha, String authorName, String authorEmail, Instant time, String filePath, int additions, int deletions) {
         Commit commit = commitJpaRepository.save(new Commit(
                 repo, sha, "Message " + sha, authorName, authorEmail, authorName.toLowerCase(),
